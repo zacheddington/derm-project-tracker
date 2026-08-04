@@ -37,7 +37,7 @@ supabase/migrations/
   0003_views.sql        CSV export, venue export, ACGME view, dashboard counts
 test/
   00_supabase_stub.sql  local stand-in for Supabase's auth schema (not deployed)
-  01_tests.sql          45 behavioral assertions
+  01_tests.sql          53 behavioral assertions
 scripts/
   preflight.sh          everything that must pass before pushing
 .github/workflows/
@@ -91,7 +91,7 @@ Four sections, in the order a mistake costs the most:
    these identifiers at length in order to explain why they are absent. This is the one
    rule the whole design rests on, so it is checked mechanically rather than remembered.
 3. **Prototype build** — `npm ci && npm run build`, the same thing Pages publishes.
-4. **Database suite** — stub → 0001 → 0002 → 0003 → 45 assertions.
+4. **Database suite** — stub → 0001 → 0002 → 0003 → 53 assertions.
 
 The database section needs a scratch Postgres 16. Set `DATABASE_URL`, or let it skip
 locally and rely on CI. **It is destructive to whatever database it connects to** — it
@@ -109,9 +109,18 @@ If the PHI section fails, that is not a lint to silence.
 ## Deployment
 
 GitHub Pages hosts the **prototype only**, via `.github/workflows/deploy-pages.yml`.
-To enable it: Settings → Pages → Source → **GitHub Actions**. The first push to `main`
-publishes it. The workflow derives the base path from the repository name, so renaming
-the repo will not break every asset URL.
+Pages is already enabled here, with Settings → Pages → Source set to **GitHub Actions**.
+The workflow derives the base path from the repository name, so renaming the repo will
+not break every asset URL.
+
+The deploy workflow is filtered to `prototype/**`, which is what you want day to day —
+a documentation commit should not redeploy the site. The consequence is that it does
+*not* fire on a push that changes nothing under `prototype/`, including the very first
+push to a new repository. Run it by hand that once:
+
+```bash
+gh workflow run deploy-pages.yml --ref main
+```
 
 The production application is specified for Vercel, not Pages, and that should not
 change without thought. Pages serves static files and nothing else: no server-side

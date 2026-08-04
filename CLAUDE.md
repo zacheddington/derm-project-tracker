@@ -23,7 +23,7 @@ this application.
 
 - `supabase/migrations/` — `0001` schema, `0002` RLS and auth, `0003` reporting views.
   Apply in order.
-- `test/01_tests.sql` — 45 behavioral assertions. `test/00_supabase_stub.sql` is a local
+- `test/01_tests.sql` — 53 behavioral assertions. `test/00_supabase_stub.sql` is a local
   stand-in for Supabase's `auth` schema and roles; **never apply it to a real project.**
 - `prototype/` — Vite + React UI prototype, browser-only, mock data, no backend.
 - `scripts/preflight.sh` — the pre-push gate. `.github/workflows/ci.yml` runs the same
