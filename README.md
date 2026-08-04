@@ -26,6 +26,9 @@ backend, saves nothing, and transmits nothing.
 ## What is here
 
 ```
+CLAUDE.md               project context loaded by Claude Code every session
+docs/SPEC.md            the original build specification
+docs/DECISIONS.md       what was decided and why
 prototype/              Vite + React UI prototype (deployed to Pages)
   src/ProjectTracker.jsx
 supabase/migrations/

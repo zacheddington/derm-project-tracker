@@ -25,3 +25,7 @@ supabase/.temp/
 *.dump
 *.sql.gz
 backups/
+
+# Claude Code local state
+.claude/settings.local.json
+CLAUDE.local.md
