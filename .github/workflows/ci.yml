@@ -55,5 +55,9 @@ jobs:
           sudo apt-get install -y postgresql-client-16
           psql --version
 
+      # Invoked through bash rather than as ./scripts/preflight.sh. This repo
+      # is committed from Windows, where NTFS has no executable bit, so git
+      # resets the file to 100644 on every `git add -A` and the direct call
+      # dies with "permission denied". Calling the interpreter does not care.
       - name: Preflight
-        run: ./scripts/preflight.sh --require-db
+        run: bash ./scripts/preflight.sh --require-db

@@ -92,6 +92,10 @@ does it for you — **destructively**, so never point it at a database holding r
 - The Supabase `anon` key is safe to commit — it is a client identifier protected by
   RLS, and `anon` has no grants regardless.
 - Run the prototype build before committing changes under `prototype/`.
+- **Committing from Windows:** git has `core.filemode = true` by default there, NTFS has
+  no executable bit, and so `git add -A` quietly resets `scripts/preflight.sh` from
+  `100755` to `100644`. CI calls it as `bash ./scripts/preflight.sh` so this cannot
+  break the run, but `git config core.filemode false` in your clone stops the churn.
 
 ## Open questions — do not invent answers to these
 
