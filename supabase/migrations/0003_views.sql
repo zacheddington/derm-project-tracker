@@ -171,3 +171,13 @@ group by p.project_type, p.work_status, ws.label, ws.sort_order, p.academic_year
 grant select on project_export, venue_export,
                acgme_scholarly_activity, dashboard_counts
   to authenticated;
+
+-- 0002 revokes everything from `anon`, but that ran before these views
+-- existed and a REVOKE does not apply to objects created later. Supabase
+-- also configures default privileges that grant new objects to anon, so
+-- without this the reporting views could be the one anonymous read in the
+-- system. They are security_invoker, so RLS would still return no rows —
+-- this is the second lock on the same door, not the only one.
+revoke all on project_export, venue_export,
+              acgme_scholarly_activity, dashboard_counts
+  from anon;

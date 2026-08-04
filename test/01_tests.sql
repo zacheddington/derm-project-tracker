@@ -208,7 +208,7 @@ begin
   perform ok(true, 'matching details attach normally');
 end $t$;
 
--- --- Tomi (a different resident) cannot edit Rae's project ------------
+-- --- Tomi (a different resident) edits Rae's project, which is allowed ---
 set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
 
 do $t$
@@ -254,11 +254,13 @@ begin
              'a non-author can revert what they changed');
 end $t$;
 
--- Privilege escalation attempts
+-- Privilege escalation attempts. Tomi is signed in and is a plain member.
 do $t$ begin
   perform denied(
     $$update people set permission_level = 'admin' where email = 'tokafor@umc.edu'$$,
     'a member cannot promote themselves to admin');
+  perform ok((select permission_level from people where email = 'tokafor@umc.edu') = 'member',
+             'the blocked promotion did not take effect');
 
   perform denied(
     $$update people set display_name = 'Renamed' where email = 'rleblanc@umc.edu'$$,
@@ -266,8 +268,52 @@ do $t$ begin
   perform ok((select display_name from people where email = 'rleblanc@umc.edu') = 'Rae LeBlanc',
              'the blocked rename did not take effect');
 
+  -- Roster facts are an admin's to set, even on your own row. Each of
+  -- these is a self-edit, which people_update_self otherwise permits.
+  perform denied(
+    $$update people set staff_position = 'attending' where email = 'tokafor@umc.edu'$$,
+    'a member cannot change their own staff position');
+  perform ok((select staff_position from people where email = 'tokafor@umc.edu') = 'resident',
+             'the blocked position change did not take effect');
+
+  perform denied(
+    $$update people set employment_end_date = current_date - 1 where email = 'tokafor@umc.edu'$$,
+    'a member cannot set their own employment end date');
+  perform ok((select employment_end_date from people where email = 'tokafor@umc.edu') is null,
+             'the blocked end date did not take effect');
+
+  perform denied(
+    $$update people set email = 'someone.else@umc.edu' where email = 'tokafor@umc.edu'$$,
+    'a member cannot change the address their sign-in matches on');
+  perform ok((select count(*) from people where email = 'tokafor@umc.edu') = 1,
+             'the blocked email change did not take effect');
+
+  -- A member may still correct their own display name.
+  update people set display_name = 'Tomi Albrecht' where email = 'tokafor@umc.edu';
+  perform ok((select display_name from people where email = 'tokafor@umc.edu') = 'Tomi Albrecht',
+             'a member can still rename themselves');
+  update people set display_name = 'Tomi Okafor' where email = 'tokafor@umc.edu';
+
   perform ok((select count(*) from audit_log) = 0,
              'a member reads zero audit rows');
+end $t$;
+
+-- The email domain gate. Equality on the domain part, not a LIKE, so a
+-- configured domain containing _ or % cannot silently widen the allowlist
+-- and a second @ cannot smuggle a foreign domain past a trailing match.
+do $t$ begin
+  perform ok(is_allowed_email('someone@umc.edu'),
+             'a UMMC address is allowed');
+  perform ok(not is_allowed_email('someone@gmail.com'),
+             'an outside address is refused');
+  perform ok(not is_allowed_email('someone@evil.com@umc.edu'),
+             'a second @ cannot smuggle a foreign domain past the gate');
+  perform ok(not is_allowed_email('someone@sub.umc.edu'),
+             'a subdomain is not the allowed domain');
+  perform ok(not is_allowed_email('someone@umcXedu'),
+             'the dot in the domain is a literal, not a wildcard');
+  perform ok(not is_allowed_email(''), 'an empty address is refused');
+  perform ok(not is_allowed_email(null), 'a null address is refused');
 end $t$;
 
 -- Inline "add new person" from the author picker is allowed, but the new

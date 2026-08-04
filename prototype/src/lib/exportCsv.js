@@ -23,11 +23,33 @@ export const CSV_COLUMNS = [
   "next_action_due_date", "updated_at", "archived",
 ];
 
+/* Spreadsheet formula injection.
+
+   Excel, LibreOffice and Google Sheets treat a cell beginning with =, +,
+   - or @ as a formula. Every free-text field here is typed by a user and
+   the export is opened by the program coordinator, so a project titled
+   `=HYPERLINK("http://evil","Q4 report")` becomes a live link in her
+   spreadsheet, and the `=cmd|…` form has historically executed.
+
+   Quoting does NOT help — the parser strips quotes before evaluating.
+   The fix is to make the cell start with something inert. A leading
+   apostrophe is the conventional marker: spreadsheets render the text
+   without it and never evaluate what follows.
+
+   Tab and carriage return lead the list because they are also treated as
+   formula-starting whitespace by some parsers. */
+const FORMULA_LEAD = /^[=+\-@\t\r]/;
+
+export function neutralizeFormula(value) {
+  const s = value == null ? "" : String(value);
+  return FORMULA_LEAD.test(s) ? `'${s}` : s;
+}
+
 /* RFC 4180: quote when the value contains a comma, a quote or a newline,
    and double any quote inside. A title with a comma in it is the single
    most common way a hand-rolled CSV writer corrupts a whole file. */
 export function escapeCsv(value) {
-  const s = value == null ? "" : String(value);
+  const s = neutralizeFormula(value);
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

@@ -373,7 +373,7 @@ create or replace function assign_case_number()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   ay  integer;
@@ -465,7 +465,7 @@ create or replace function refresh_project_search(p_id uuid)
 returns void
 language sql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
   update projects p set search_vector =
       setweight(to_tsvector('english', coalesce(p.title, '')),   'A')
@@ -532,7 +532,7 @@ returns uuid
 language sql
 stable
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
   select id from people where auth_user_id = auth.uid();
 $$;
@@ -541,7 +541,7 @@ create or replace function write_audit_log()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   changes  jsonb := '{}'::jsonb;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { projectsToCsv, escapeCsv, venueLabel, CSV_COLUMNS } from "./exportCsv.js";
+import { projectsToCsv, escapeCsv, neutralizeFormula, venueLabel, CSV_COLUMNS } from "./exportCsv.js";
 
 const people = [
   { id: "p1", display_name: "Rae LeBlanc", staff_position: "resident" },
@@ -65,6 +65,40 @@ describe("CSV escaping", () => {
   it("renders null and undefined as empty, not as the word null", () => {
     expect(escapeCsv(null)).toBe("");
     expect(escapeCsv(undefined)).toBe("");
+  });
+});
+
+describe("spreadsheet formula injection", () => {
+  it("neutralises every character a spreadsheet treats as a formula lead", () => {
+    for (const lead of ["=", "+", "-", "@", "\t", "\r"]) {
+      expect(neutralizeFormula(`${lead}SUM(A1)`)).toBe(`'${lead}SUM(A1)`);
+    }
+  });
+
+  it("defuses the two payloads that actually get used", () => {
+    // A live link in the coordinator's spreadsheet.
+    expect(neutralizeFormula('=HYPERLINK("http://evil","Q4 report")'))
+      .toBe('\'=HYPERLINK("http://evil","Q4 report")');
+    // The command form, which has historically executed on open.
+    expect(neutralizeFormula("=cmd|' /C calc'!A0")).toBe("'=cmd|' /C calc'!A0");
+  });
+
+  it("leaves ordinary clinical text completely alone", () => {
+    for (const ok of ["Bullous pemphigoid", "JAK inhibitors", "2026", "Rae LeBlanc"]) {
+      expect(neutralizeFormula(ok)).toBe(ok);
+    }
+  });
+
+  it("survives a malicious project title end to end", () => {
+    const csv = projectsToCsv([project({ title: "=1+1" })], people);
+    const cell = parseRow(csv.split("\n")[1])[0];
+    expect(cell.startsWith("'")).toBe(true);
+    expect(cell).toBe("'=1+1");
+  });
+
+  it("still quotes a formula that also contains a comma", () => {
+    // Both defences have to apply, not one or the other.
+    expect(escapeCsv('=HYPERLINK("a","b")')).toBe(`"'=HYPERLINK(""a"",""b"")"`);
   });
 });
 

@@ -27,19 +27,27 @@ create table app_settings (
 insert into app_settings (key, value) values
   ('allowed_email_domains', '["umc.edu"]'::jsonb);
 
+-- Compares the domain part for equality rather than pattern-matching the
+-- whole address. LIKE would treat `_` and `%` in a configured domain as
+-- wildcards — `my_school.edu` would also admit `myXschool.edu` — and an
+-- allowlist that silently matches more than it says is the wrong kind of
+-- surprise. Equality also rejects `someone@evil.com@umc.edu`, which a
+-- trailing-match LIKE accepts.
 create or replace function is_allowed_email(addr text)
 returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
   select exists (
     select 1
     from app_settings s,
          jsonb_array_elements_text(s.value) d
     where s.key = 'allowed_email_domains'
-      and lower(addr) like '%@' || lower(d)
+      and length(coalesce(addr, '')) > 0
+      and split_part(lower(btrim(addr)), '@', 2) = lower(btrim(d))
+      and split_part(lower(btrim(addr)), '@', 3) = ''   -- exactly one @
   );
 $$;
 
@@ -48,13 +56,21 @@ $$;
 -- ---------------------------------------------------------------------
 -- SECURITY DEFINER so they can read `people` without re-entering RLS
 -- and recursing.
+--
+-- Every SECURITY DEFINER function in this schema sets
+-- `search_path = public, pg_temp`, and the `pg_temp` part is load-bearing.
+-- Postgres searches the temporary schema FIRST for relation names unless
+-- pg_temp is listed explicitly, so a definer function that sets only
+-- `= public` can be handed a caller-created `pg_temp.people` and will
+-- happily read it with the owner's privileges. Naming pg_temp last puts
+-- it after public and closes that. Do not drop it from any of them.
 
 create or replace function is_admin()
 returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
   select coalesce(
     (select permission_level = 'admin' and is_currently_employed(employment_end_date)
@@ -67,7 +83,7 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
   select coalesce(
     (select is_currently_employed(employment_end_date) from people where auth_user_id = auth.uid()),
@@ -85,7 +101,7 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
   select exists (
     select 1
@@ -109,7 +125,7 @@ create or replace function handle_new_auth_user()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   existing uuid;
@@ -156,7 +172,7 @@ create or replace function guard_people_privileged_columns()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 begin
   -- auth.uid() is null when the call is not coming through the API:
@@ -169,6 +185,29 @@ begin
 
   if new.permission_level is distinct from old.permission_level then
     raise exception 'Only an admin can change a permission level.'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- Roster facts, not self-description. staff_position decides who counts
+  -- as a resident in the ACGME report and who appears in the attending
+  -- picker, so letting people set their own means the reports say whatever
+  -- the roster feels like that day.
+  if new.staff_position is distinct from old.staff_position then
+    raise exception 'Only an admin can change a staff position.'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- Employment dates decide who is still a member. Self-service here is a
+  -- way to lock yourself out by accident, and a way to quietly remove
+  -- someone from every picker if the policy is ever widened.
+  if new.employment_end_date is distinct from old.employment_end_date then
+    raise exception 'Only an admin can change an employment end date.'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- The email is the key the auth provider matches a sign-in against.
+  if new.email is distinct from old.email then
+    raise exception 'Only an admin can change a roster email address.'
       using errcode = 'insufficient_privilege';
   end if;
 
@@ -196,7 +235,7 @@ create or replace function default_new_person_privileges()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 begin
   if auth.uid() is not null and not is_admin() then
