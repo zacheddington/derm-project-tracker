@@ -1,0 +1,377 @@
+-- =====================================================================
+-- Behavioral tests. Run against a scratch database after the migrations.
+-- Every check raises on failure, so a clean run means everything passed.
+-- =====================================================================
+
+create or replace function ok(cond boolean, label text)
+returns void language plpgsql as $fn$
+begin
+  if cond then raise notice 'PASS  %', label;
+  else raise exception 'FAIL  %', label;
+  end if;
+end $fn$;
+
+-- Asserts that a statement is rejected, and that it is rejected for the
+-- expected reason rather than a typo.
+-- Row Level Security denies a write by matching ZERO ROWS, not by
+-- raising. Only column guards and constraints raise. Both count as
+-- denial; the app layer must treat "0 rows affected" as "not permitted"
+-- rather than as success.
+create or replace function denied(stmt text, label text, expect text default null)
+returns void language plpgsql as $fn$
+declare n integer;
+begin
+  execute stmt;
+  get diagnostics n = row_count;
+  if n = 0 then
+    raise notice 'PASS  % (blocked by RLS: zero rows)', label;
+    return;
+  end if;
+  raise exception 'FAIL  % (% row(s) affected; should have been none)', label, n;
+exception
+  when insufficient_privilege or check_violation then
+    raise notice 'PASS  %', label;
+  when others then
+    if sqlstate = '42501' or sqlerrm ilike '%policy%' or sqlerrm ilike '%permission%'
+       or (expect is not null and sqlerrm ilike '%' || expect || '%') then
+      raise notice 'PASS  %', label;
+    else
+      raise exception 'FAIL  % (wrong error: % / %)', label, sqlstate, sqlerrm;
+    end if;
+end $fn$;
+
+-- ---------------------------------------------------------------------
+-- Fixtures: three users arriving through the auth trigger
+-- ---------------------------------------------------------------------
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('11111111-1111-1111-1111-111111111111', 'coordinator@umc.edu', '{"full_name":"Dana Reyes"}'),
+  ('22222222-2222-2222-2222-222222222222', 'rleblanc@umc.edu',    '{"full_name":"Rae LeBlanc"}'),
+  ('33333333-3333-3333-3333-333333333333', 'tokafor@umc.edu',     '{"full_name":"Tomi Okafor"}');
+
+do $t$ begin
+  perform ok((select count(*) from people) = 3,
+             'auth signup creates a roster entry for each user');
+  perform ok((select display_name from people where email = 'coordinator@umc.edu') = 'Dana Reyes',
+             'display_name comes from the identity provider');
+end $t$;
+
+-- Outside domains are rejected at the database, not just at the provider.
+do $t$ begin
+  perform denied($$insert into auth.users (email) values ('someone@gmail.com')$$,
+                 'non-UMMC email is refused at signup', 'not permitted');
+end $t$;
+
+-- Promote the coordinator to admin (as the service role would, at setup).
+update people set app_role = 'admin', role = 'research_coordinator'
+  where email = 'coordinator@umc.edu';
+update people set role = 'resident', pgy_level = 2 where email = 'rleblanc@umc.edu';
+update people set role = 'resident', pgy_level = 3 where email = 'tokafor@umc.edu';
+
+-- ---------------------------------------------------------------------
+-- Constraints
+-- ---------------------------------------------------------------------
+do $t$ begin
+  perform denied(
+    $$insert into people (display_name, role, pgy_level)
+      values ('Dr Attending', 'attending', 4)$$,
+    'pgy_level is rejected on non-residents');
+
+  perform ok((select email from people where display_name = 'Rae LeBlanc') = 'rleblanc@umc.edu',
+             'email is stored lowercased');
+end $t$;
+
+insert into people (display_name, role, email)
+  values ('Priya Raman', 'attending', 'PRaman@UMC.edu');
+do $t$ begin
+  perform ok((select email from people where display_name = 'Priya Raman') = 'praman@umc.edu',
+             'mixed-case email is normalized on insert');
+  perform denied(
+    $$insert into people (display_name, role, email) values ('Dup', 'attending', 'praman@umc.edu')$$,
+    'duplicate email is refused', 'unique');
+end $t$;
+
+-- ---------------------------------------------------------------------
+-- Now act as real users, through RLS
+-- ---------------------------------------------------------------------
+set role authenticated;
+
+-- --- Rae (resident, member) creates a case report ---------------------
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+do $t$
+declare pid uuid; rae uuid;
+begin
+  select id into rae from people where email = 'rleblanc@umc.edu';
+
+  insert into projects (title, type, purpose, created_by)
+    values ('Disseminated gonococcal rash', 'case_report',
+            'Atypical presentation worth writing up', rae)
+    returning id into pid;
+  insert into project_owners (project_id, person_id) values (pid, rae);
+  insert into case_report_details (project_id, diagnosis, why_unique)
+    values (pid, 'Disseminated gonococcal infection',
+            'Pustular rash preceded joint symptoms by nine days');
+
+  perform ok((select case_id from case_report_details where project_id = pid)
+             = 'CR-' || academic_year_of(current_date) || '-001',
+             'first case report of the academic year gets sequence 001');
+  perform ok((select work_status from projects where id = pid) = 'idea',
+             'new projects default to Idea');
+  perform ok((select academic_year from projects where id = pid) = academic_year_of(current_date),
+             'academic year is derived from the creation date');
+  perform ok((select search_vector from projects where id = pid) @@ to_tsquery('english', 'gonococcal'),
+             'search finds a term that only appears in the diagnosis');
+end $t$;
+
+-- Second case report increments within the same year
+do $t$
+declare pid uuid; rae uuid;
+begin
+  select id into rae from people where email = 'rleblanc@umc.edu';
+  insert into projects (title, type, created_by)
+    values ('Bullous pemphigoid after gliptin exposure', 'case_report', rae) returning id into pid;
+  insert into project_owners (project_id, person_id) values (pid, rae);
+  insert into case_report_details (project_id, diagnosis, why_unique)
+    values (pid, 'Bullous pemphigoid', 'Onset 14 months after starting therapy');
+  perform ok((select case_id from case_report_details where project_id = pid)
+             = 'CR-' || academic_year_of(current_date) || '-002',
+             'case IDs increment within an academic year');
+end $t$;
+
+-- A project cannot be left with no owner
+do $t$
+declare pid uuid; rae uuid;
+begin
+  select id into rae from people where email = 'rleblanc@umc.edu';
+  begin
+    insert into projects (title, type, created_by)
+      values ('Orphan project', 'review', rae) returning id into pid;
+    insert into project_owners (project_id, person_id) values (pid, rae);
+    delete from project_owners where project_id = pid;
+    -- deferred constraint fires at commit; force it now
+    set constraints all immediate;
+    raise exception 'FAIL  removing the last owner was allowed';
+  exception when check_violation then
+    raise notice 'PASS  a project cannot be left with zero owners';
+  end;
+end $t$;
+rollback;
+
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+-- Details must match the parent project's type
+do $t$
+declare pid uuid; rae uuid;
+begin
+  select id into rae from people where email = 'rleblanc@umc.edu';
+  insert into projects (title, type, created_by)
+    values ('Clinic no-show reduction', 'qa_qi', rae) returning id into pid;
+  insert into project_owners (project_id, person_id) values (pid, rae);
+
+  perform denied(
+    format($$insert into case_report_details (project_id, diagnosis, why_unique)
+             values (%L, 'x', 'y')$$, pid),
+    'case report details cannot attach to a QI project');
+
+  insert into qa_qi_details (project_id, description, aim_statement, measure)
+    values (pid, 'Reduce no-show rate in resident clinic',
+            'Cut no-shows from 22% to 15% by June',
+            'Monthly no-show rate from the scheduling report');
+  perform ok(true, 'matching details attach normally');
+end $t$;
+
+-- --- Tomi (a different resident) cannot edit Rae's project ------------
+set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
+
+do $t$
+declare pid uuid;
+begin
+  select id into pid from projects where title = 'Disseminated gonococcal rash';
+
+  perform ok((select count(*) from projects) >= 3,
+             'every member can read every project');
+
+  perform denied(
+    format($$update projects set work_status = 'abandoned' where id = %L$$, pid),
+    'a non-owner cannot change someone else''s project');
+
+  perform denied(
+    format($$update projects set archived_at = now() where id = %L$$, pid),
+    'a non-owner cannot archive someone else''s project');
+
+  perform denied(
+    format($$delete from projects where id = %L$$, pid),
+    'a member cannot hard-delete a project');
+
+  perform denied(
+    format($$insert into project_venues (project_id, venue_type, venue_name)
+             values (%L, 'poster', 'Hijack')$$, pid),
+    'a non-owner cannot add a venue to someone else''s project');
+
+  -- Confirm the blocked writes truly left no trace.
+  perform ok((select work_status from projects where id = pid) = 'idea',
+             'the blocked status change did not take effect');
+  perform ok((select archived_at from projects where id = pid) is null,
+             'the blocked archive did not take effect');
+  perform ok(exists (select 1 from projects where id = pid),
+             'the blocked delete did not remove the project');
+  perform ok(not exists (select 1 from project_venues where venue_name = 'Hijack'),
+             'the blocked venue was not created');
+end $t$;
+
+-- Privilege escalation attempts
+do $t$ begin
+  perform denied(
+    $$update people set app_role = 'admin' where email = 'tokafor@umc.edu'$$,
+    'a member cannot promote themselves to admin');
+
+  perform denied(
+    $$update people set display_name = 'Renamed' where email = 'rleblanc@umc.edu'$$,
+    'a member cannot edit another person''s roster entry');
+  perform ok((select display_name from people where email = 'rleblanc@umc.edu') = 'Rae LeBlanc',
+             'the blocked rename did not take effect');
+
+  perform ok((select count(*) from audit_log) = 0,
+             'a member reads zero audit rows');
+end $t$;
+
+-- Inline "add new person" from the owner picker is allowed, but the new
+-- person is always a plain member regardless of what the client sends.
+insert into people (display_name, role, app_role)
+  values ('Sam Whitfield', 'medical_student', 'admin');
+do $t$ begin
+  perform ok((select app_role from people where display_name = 'Sam Whitfield') = 'member',
+             'inline-added people are forced to member, not admin');
+end $t$;
+
+-- --- Rae edits her own project ----------------------------------------
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+do $t$
+declare pid uuid; tomi uuid;
+begin
+  select id into pid from projects where title = 'Disseminated gonococcal rash';
+  select id into tomi from people where email = 'tokafor@umc.edu';
+
+  update projects set work_status = 'rough_draft' where id = pid;
+  perform ok((select work_status from projects where id = pid) = 'rough_draft',
+             'an owner can advance their own project');
+
+  -- statuses move backwards; transitions are never enforced
+  update projects set work_status = 'planning' where id = pid;
+  perform ok((select work_status from projects where id = pid) = 'planning',
+             'work status can move backwards');
+
+  insert into project_owners (project_id, person_id) values (pid, tomi);
+  perform ok((select count(*) from project_owners where project_id = pid) = 2,
+             'an owner can add a co-owner');
+
+  -- two live venues at once, at different stages
+  insert into project_venues (project_id, venue_type, venue_name, submission_status)
+    values (pid, 'poster', 'Mississippi Dermatology Society Annual', 'accepted'),
+           (pid, 'journal', 'JAAD Case Reports', 'in_review');
+  perform ok((select count(*) from project_venues where project_id = pid) = 2,
+             'a project can hold two venues at different stages at once');
+end $t$;
+
+-- Tomi, now a co-owner, can edit
+set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
+do $t$
+declare pid uuid;
+begin
+  select id into pid from projects where title = 'Disseminated gonococcal rash';
+  update projects set notes = 'Added the immunofluorescence images.' where id = pid;
+  perform ok((select notes from projects where id = pid) is not null,
+             'a newly added co-owner can now edit');
+end $t$;
+
+-- --- Admin powers ------------------------------------------------------
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+do $t$
+declare pid uuid;
+begin
+  select id into pid from projects where title = 'Bullous pemphigoid after gliptin exposure';
+
+  update projects set work_status = 'on_hold' where id = pid;
+  perform ok((select work_status from projects where id = pid) = 'on_hold',
+             'an admin can edit a project they do not own');
+
+  update projects set archived_at = now() where id = pid;
+  perform ok((select archived_at from projects where id = pid) is not null,
+             'an admin can archive any project');
+
+  perform ok((select count(*) from audit_log) > 0,
+             'an admin can read the audit log');
+
+  perform ok(exists (select 1 from audit_log
+                     where entity_type = 'projects'
+                       and changed_fields ? 'work_status'),
+             'the audit log records who changed a status');
+
+  perform ok(not exists (select 1 from audit_log where changed_fields ? 'search_vector'),
+             'the audit log ignores internal columns');
+end $t$;
+
+-- The audit log is append-only even for admins.
+do $t$ begin
+  perform denied($$delete from audit_log$$,
+                 'even an admin cannot delete audit rows', 'permission');
+  perform denied($$update audit_log set action = 'x'$$,
+                 'even an admin cannot rewrite audit rows', 'permission');
+end $t$;
+
+-- Admins can retune the status vocabulary without a migration (§6).
+insert into work_statuses (code, label, sort_order)
+  values ('awaiting_attending', 'Awaiting attending review', 55);
+do $t$ begin
+  perform ok((select count(*) from work_statuses) = 10,
+             'an admin can add a work status without a code change');
+end $t$;
+
+-- Deactivating a graduate preserves historical attribution.
+update people set is_active = false where email = 'rleblanc@umc.edu';
+do $t$ begin
+  perform ok(exists (select 1 from project_owners po
+                     join people pe on pe.id = po.person_id
+                     where pe.email = 'rleblanc@umc.edu'),
+             'a deactivated graduate stays attached to their projects');
+  perform denied(
+    $$delete from people where email = 'rleblanc@umc.edu'$$,
+    'a person attached to a project cannot be hard-deleted', 'violates foreign key');
+end $t$;
+
+-- Reporting views
+do $t$
+declare r record;
+begin
+  select * into r from project_export where title = 'Disseminated gonococcal rash';
+  perform ok(r.owners like '%Rae LeBlanc%' and r.owners like '%Tomi Okafor%',
+             'the export view lists all owners in one cell');
+  perform ok(r.venue_count = 2 and r.venues like '%JAAD Case Reports%',
+             'the export view collapses venues for a spreadsheet cell');
+  perform ok(r.case_id is not null and r.description is null,
+             'type-specific columns populate only for the matching type');
+  perform ok(r.academic_year_label like '20%-20%',
+             'academic year renders as a span');
+
+  perform ok((select count(*) from venue_export) = 2,
+             'the venue export emits one row per venue');
+  perform ok((select count(*) from acgme_scholarly_activity) >= 2,
+             'the ACGME view reports resident activity');
+end $t$;
+
+-- --- Anonymous access ---------------------------------------------------
+reset role;
+set role anon;
+do $t$ begin
+  perform denied($$select id from projects$$,
+                 'anonymous visitors can read nothing', 'permission');
+  perform denied($$insert into projects (title, type, academic_year)
+                   values ('junk', 'review', 2026)$$,
+                 'there are no anonymous writes', 'permission');
+end $t$;
+
+reset role;
+select 'ALL TESTS PASSED' as result;

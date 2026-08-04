@@ -1,0 +1,345 @@
+-- =====================================================================
+-- Migration 0002 — authorization
+--
+-- Permissions are enforced at the database layer (§9), not hidden in the
+-- UI. Two roles only (§3):
+--   member — read everything; create projects; edit/archive projects
+--            they own; add people to the roster
+--   admin  — everything above, plus edit/archive/hard-delete anything,
+--            manage the roster, assign roles, read the audit log
+-- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- 1. Access gate
+-- ---------------------------------------------------------------------
+-- Access is restricted to UMMC-affiliated people (§4). The primary gate
+-- is the auth provider (institutional SSO, or magic link with a domain
+-- allowlist). This is the belt-and-braces second gate.
+
+create table app_settings (
+  key   text primary key,
+  value jsonb not null
+);
+
+insert into app_settings (key, value) values
+  ('allowed_email_domains', '["umc.edu"]'::jsonb);
+
+create or replace function is_allowed_email(addr text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from app_settings s,
+         jsonb_array_elements_text(s.value) d
+    where s.key = 'allowed_email_domains'
+      and lower(addr) like '%@' || lower(d)
+  );
+$$;
+
+-- ---------------------------------------------------------------------
+-- 2. Role helpers
+-- ---------------------------------------------------------------------
+-- SECURITY DEFINER so they can read `people` without re-entering RLS
+-- and recursing.
+
+create or replace function is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    (select app_role = 'admin' and is_active
+       from people where auth_user_id = auth.uid()),
+    false);
+$$;
+
+create or replace function is_member()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    (select is_active from people where auth_user_id = auth.uid()),
+    false);
+$$;
+
+create or replace function owns_project(p_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from project_owners po
+    join people pe on pe.id = po.person_id
+    where po.project_id = p_id
+      and pe.auth_user_id = auth.uid());
+$$;
+
+-- ---------------------------------------------------------------------
+-- 3. Linking auth.users to people
+-- ---------------------------------------------------------------------
+-- On first sign-in, attach the auth account to an existing roster entry
+-- with the same email, or create one. This is what makes every write
+-- attributable (§4) without asking anyone to fill out a profile.
+
+create or replace function handle_new_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  existing uuid;
+begin
+  if not is_allowed_email(new.email) then
+    raise exception 'Email domain not permitted for this application.';
+  end if;
+
+  select id into existing
+  from people
+  where lower(email) = lower(new.email) and auth_user_id is null
+  limit 1;
+
+  if existing is not null then
+    update people
+      set auth_user_id = new.id,
+          is_active    = true,
+          updated_at   = now()
+      where id = existing;
+  else
+    insert into people (auth_user_id, display_name, email, role)
+    values (
+      new.id,
+      coalesce(nullif(btrim(new.raw_user_meta_data ->> 'full_name'), ''),
+               split_part(new.email, '@', 1)),
+      lower(new.email),
+      'resident'          -- sensible default; an admin corrects it
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function handle_new_auth_user();
+
+-- ---------------------------------------------------------------------
+-- 4. Column-level guards RLS cannot express
+-- ---------------------------------------------------------------------
+
+create or replace function guard_people_privileged_columns()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- auth.uid() is null when the call is not coming through the API:
+  -- the service role, a migration, or an admin in the SQL editor. Those
+  -- paths are already privileged, and this is how the first admin gets
+  -- bootstrapped. Guard the API path only.
+  if auth.uid() is null or is_admin() then
+    return new;
+  end if;
+
+  if new.app_role is distinct from old.app_role then
+    raise exception 'Only an admin can change a role.'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if new.merged_into is distinct from old.merged_into then
+    raise exception 'Only an admin can merge people.'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if new.auth_user_id is distinct from old.auth_user_id then
+    raise exception 'Sign-in linkage cannot be changed here.'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger people_privileged_columns
+  before update on people
+  for each row execute function guard_people_privileged_columns();
+
+-- New roster entries created inline from the owner picker are plain
+-- members, whatever the client sends.
+create or replace function default_new_person_privileges()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is not null and not is_admin() then
+    new.app_role := 'member';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger people_default_privileges
+  before insert on people
+  for each row execute function default_new_person_privileges();
+
+-- ---------------------------------------------------------------------
+-- 5. Enable RLS
+-- ---------------------------------------------------------------------
+
+alter table people               enable row level security;
+alter table projects             enable row level security;
+alter table project_owners       enable row level security;
+alter table project_venues       enable row level security;
+alter table case_report_details  enable row level security;
+alter table qa_qi_details        enable row level security;
+alter table research_details     enable row level security;
+alter table review_details       enable row level security;
+alter table work_statuses        enable row level security;
+alter table submission_statuses  enable row level security;
+alter table audit_log            enable row level security;
+alter table app_settings         enable row level security;
+alter table case_id_counters     enable row level security;
+
+-- --- people -----------------------------------------------------------
+create policy people_read on people
+  for select to authenticated using (is_member());
+
+create policy people_insert on people
+  for insert to authenticated with check (is_member());
+
+create policy people_update_self on people
+  for update to authenticated
+  using (is_member() and (auth_user_id = auth.uid() or is_admin()))
+  with check (is_member() and (auth_user_id = auth.uid() or is_admin()));
+
+-- Deliberately no member-facing delete. Deactivate instead (§5).
+create policy people_delete_admin on people
+  for delete to authenticated using (is_admin());
+
+-- --- projects ---------------------------------------------------------
+-- Everyone sees everything, archived included; the default list view
+-- filters archived rows out in the query, not in the policy.
+create policy projects_read on projects
+  for select to authenticated using (is_member());
+
+create policy projects_insert on projects
+  for insert to authenticated with check (is_member());
+
+-- Owners edit and archive their own; admins edit and archive anything.
+create policy projects_update on projects
+  for update to authenticated
+  using (is_member() and (owns_project(id) or is_admin()))
+  with check (is_member() and (owns_project(id) or is_admin()));
+
+-- Hard delete is admin-only, and the UI must confirm first (§3).
+create policy projects_delete on projects
+  for delete to authenticated using (is_admin());
+
+-- --- project_owners ---------------------------------------------------
+create policy project_owners_read on project_owners
+  for select to authenticated using (is_member());
+
+-- An owner can add co-owners. Anyone can claim a project that somehow
+-- has none, which also covers the first owner added at creation time.
+create policy project_owners_write on project_owners
+  for insert to authenticated
+  with check (
+    is_member() and (
+      is_admin()
+      or owns_project(project_id)
+      or not exists (select 1 from project_owners po where po.project_id = project_owners.project_id)
+    ));
+
+create policy project_owners_remove on project_owners
+  for delete to authenticated
+  using (is_member() and (owns_project(project_id) or is_admin()));
+
+-- --- child tables inherit the parent project's rules ------------------
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'project_venues', 'case_report_details', 'qa_qi_details',
+    'research_details', 'review_details'
+  ] loop
+    execute format($f$
+      create policy %1$s_read on %1$I
+        for select to authenticated using (is_member());
+
+      create policy %1$s_insert on %1$I
+        for insert to authenticated
+        with check (is_member() and (owns_project(project_id) or is_admin()));
+
+      create policy %1$s_update on %1$I
+        for update to authenticated
+        using (is_member() and (owns_project(project_id) or is_admin()))
+        with check (is_member() and (owns_project(project_id) or is_admin()));
+
+      create policy %1$s_delete on %1$I
+        for delete to authenticated
+        using (is_member() and (owns_project(project_id) or is_admin()));
+    $f$, t);
+  end loop;
+end $$;
+
+-- --- status vocabularies ---------------------------------------------
+-- Readable by all, editable by admins without a code change (§6).
+create policy work_statuses_read on work_statuses
+  for select to authenticated using (is_member());
+create policy work_statuses_write on work_statuses
+  for all to authenticated using (is_admin()) with check (is_admin());
+
+create policy submission_statuses_read on submission_statuses
+  for select to authenticated using (is_member());
+create policy submission_statuses_write on submission_statuses
+  for all to authenticated using (is_admin()) with check (is_admin());
+
+-- --- audit log --------------------------------------------------------
+-- Append-only: rows arrive via SECURITY DEFINER triggers, which bypass
+-- RLS. No insert, update or delete policy exists for anyone, so the log
+-- cannot be edited through the API even by an admin.
+create policy audit_log_read on audit_log
+  for select to authenticated using (is_admin());
+
+-- --- settings and counters -------------------------------------------
+create policy app_settings_read on app_settings
+  for select to authenticated using (is_member());
+create policy app_settings_write on app_settings
+  for all to authenticated using (is_admin()) with check (is_admin());
+
+-- case_id_counters is written only by the SECURITY DEFINER trigger.
+create policy case_id_counters_read on case_id_counters
+  for select to authenticated using (is_admin());
+
+-- ---------------------------------------------------------------------
+-- 6. Grants
+-- ---------------------------------------------------------------------
+-- RLS does the real work; these just open the door to the policies.
+
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on
+  people, projects, project_owners, project_venues,
+  case_report_details, qa_qi_details, research_details, review_details,
+  work_statuses, submission_statuses, app_settings
+  to authenticated;
+grant select on audit_log, case_id_counters to authenticated;
+grant usage, select on all sequences in schema public to authenticated;
+
+-- The anon role gets nothing. There are no anonymous writes (§4).
+revoke all on all tables in schema public from anon;
