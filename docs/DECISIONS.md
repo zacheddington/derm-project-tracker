@@ -125,6 +125,105 @@ It is deliberately a shallow check. It cannot catch PHI arriving as free text in
 `why_unique`, which is what the MRN-shaped-pattern warning in the prototype is for. It
 catches the schema change, which is the irreversible one.
 
+## 2026-08-04 — The prototype has no signed-in user, and everyone can edit
+
+The "signed in as" selector is gone, along with the `mineOnly` filter and the Mine
+counter that depended on it.
+
+It was standing in for SSO, but it also quietly decided two other things. New projects
+were auto-assigned to whoever was selected, which guesses wrong constantly — coordinators
+enter projects on behalf of residents, and a wrong author that arrives silently is worse
+than a blank one, because nobody notices it. And it drove an owner-only read-only mode,
+which is why opening someone else's project appeared to be an unfixable bug: every field
+was disabled except the author picker, which had never been wired to the same flag.
+
+Anyone can now edit anything. This is a department's shared record of its own work; a
+resident fixing an attending's typo is the system working. The audit log in `0001` is
+what makes it safe, and it is a better answer than a lock that stops the wrong edits by
+also stopping the right ones.
+
+Authorship is now a property of the project, chosen deliberately, rather than a side
+effect of who was holding the keyboard.
+
+## 2026-08-04 — Authors can be emptied, but an empty project cannot be saved
+
+Removing the last author used to be blocked outright. That makes replacing a single
+author a puzzle: you have to add the new one before removing the old, and if you thought
+of it in the other order the interface simply refuses without explaining.
+
+Removal is now unrestricted and the constraint moved to save time, where it belongs. This
+is also why the detail panel gained an explicit Save: it was previously writing every
+keystroke straight through, which left no moment at which a save could be refused. A
+draft plus a Save button gives the refusal somewhere to happen, and gives Cancel a
+meaning it did not have.
+
+The dialog explains rather than greying out a button. A disabled control with no
+explanation is the most common way an interface stops telling you what it wants.
+
+## 2026-08-04 — Case IDs come from the highest issued, not the count
+
+Found while adding the ability to change a project's type. The old implementation
+numbered a new case report as `count of case reports this year + 1`, which collides the
+moment one is archived or retyped: two live plus one archived reissues `003`.
+
+Changing type made this reachable in normal use rather than only in theory, so the
+sequence now derives from the highest number already issued in that academic year. A case
+ID, once issued, is never reissued or renumbered — including when a project is typed away
+from case report and back. The sequence is a count of case reports opened that year, and
+reusing a number makes that count wrong.
+
+## 2026-08-04 — Sort keys are computed per row, not per comparison
+
+Prompted by a question about how many rows the table can take before it feels slow, which
+turned out to be worth measuring rather than estimating.
+
+Filtering was never the problem: 0.4ms at a thousand rows, 4.4ms at ten thousand. Sorting
+by author was, at 51ms and 584ms respectively — visible jank on every keystroke. The
+cause was the sort key. Comparators run O(n log n) times, and the authors key maps owner
+ids to names and sorts them, so a thousand rows meant that work happened roughly ten
+thousand times instead of a thousand.
+
+Decorate-sort-undecorate, plus one shared `Intl.Collator` instead of
+`String.prototype.localeCompare` building a fresh one per call, took a thousand rows to
+0.9ms and ten thousand to 10ms — about fifty times faster.
+
+The regression test asserts that `nameOf` is called exactly twice per row rather than
+asserting a wall-clock time, so it states the actual invariant and cannot go flaky on a
+slow CI runner.
+
+Pagination at twenty rows a page was added at the same time, and matters more than either
+number: rendering thousands of table rows costs far more than filtering them. Filters run
+over the whole set, not the visible page.
+
+## 2026-08-04 — "Research fellow" is a label change, not an enum change
+
+The UI now reads "Research fellow". The Postgres `person_role` enum still says
+`research_coordinator`.
+
+Renaming an enum value is `ALTER TYPE`, which is a migration, and it would touch
+`0002_rls.sql`, the ACGME view, the test suite and the bootstrap SQL in this README. The
+request was for wording. The code and the label are allowed to differ, and both places
+now say so in a comment, because the failure mode is someone later "fixing" one to match
+the other and breaking the half they did not look at.
+
+Worth doing properly before the schema is deployed anywhere. It is cheap now and
+expensive once there are rows.
+
+## 2026-08-04 — Employment is a date range, not a flag
+
+`is_active` became `end_date`. Pickers show people with no end date, or an end date still
+in the future; someone who has given notice is still on the list until they go.
+
+The flag could not express "left in June", which is the only form the question actually
+takes. It also gave no way to answer "who was here when this project ran". People are
+never deleted — historical attribution has to survive residents graduating — so leaving
+had to be representable as data rather than as a removal.
+
+Renaming is the same shape of problem solved the same way: projects reference a person's
+ID and never their name, so a marriage is one edit to one row and every association
+follows it. That property is now covered by a test, because it is the kind of thing a
+future refactor could quietly break.
+
 ---
 
 ## Still open

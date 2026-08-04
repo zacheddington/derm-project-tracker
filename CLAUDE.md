@@ -26,6 +26,8 @@ this application.
 - `test/01_tests.sql` — 53 behavioral assertions. `test/00_supabase_stub.sql` is a local
   stand-in for Supabase's `auth` schema and roles; **never apply it to a real project.**
 - `prototype/` — Vite + React UI prototype, browser-only, mock data, no backend.
+  `src/lib/` holds the list logic as pure functions with `*.test.js` beside them;
+  `src/components/` holds the panels. Put new behaviour in `lib/` and write the scenario.
 - `scripts/preflight.sh` — the pre-push gate. `.github/workflows/ci.yml` runs the same
   script with `--require-db` on every push and PR.
 - `.github/workflows/deploy-pages.yml` — publishes the prototype to GitHub Pages.
@@ -37,6 +39,7 @@ The Next.js application does not exist yet. That is the next block of work.
 ```bash
 ./scripts/preflight.sh                         # must pass before pushing anything
 cd prototype && npm install && npm run dev     # prototype, local
+cd prototype && npm test                       # 65 assertions over src/lib
 ```
 
 `preflight.sh` checks, in order: no secrets or dumps tracked; no PHI identifier in live
@@ -68,6 +71,23 @@ does it for you — **destructively**, so never point it at a database holding r
   `CR-2026-014`.
 - **Soft delete by default.** "Delete" sets `archived_at`. Hard delete is admin-only and
   needs a confirmation step in the UI.
+- **A case ID is issued from the highest already used, never from a count.** Counting
+  reissues a number the moment a case report is archived or retyped. Once issued, a case
+  ID is never renumbered or reissued — the sequence is a count of case reports opened
+  that year, and reusing a number makes it lie.
+- **Authors can be emptied in the editor but not saved empty.** Removing the last chip is
+  allowed on purpose: you have to be able to take the wrong name off before adding the
+  right one. `validateProject` is the gate, and it raises a dialog rather than silently
+  disabling Save.
+- **The prototype has no signed-in user.** Everyone can edit everything. Authorship is a
+  property of the project, not of whoever is typing, and the schema's audit trail is what
+  makes that safe. Do not reintroduce an owner-only read-only mode in the prototype.
+- **`research_coordinator` is the enum code; "Research fellow" is only its label.**
+  Renaming the enum value is a migration, so the UI label and the DB code differ on
+  purpose. Do not "fix" one to match the other without doing both.
+- **Sort keys are computed once per row, never inside a comparator.** A comparator runs
+  O(n log n) times; the authors key maps ids to names and sorts them. Doing it per
+  comparison measured 51ms at 1,000 rows against 0.9ms per row-wise.
 - **Never hard-delete a person attached to a project.** Deactivate. Historical
   attribution has to survive residents graduating.
 

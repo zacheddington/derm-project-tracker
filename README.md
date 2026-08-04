@@ -30,7 +30,12 @@ CLAUDE.md               project context loaded by Claude Code every session
 docs/SPEC.md            the original build specification
 docs/DECISIONS.md       what was decided and why
 prototype/              Vite + React UI prototype (deployed to Pages)
-  src/ProjectTracker.jsx
+  src/ProjectTracker.jsx    the app: list, filters, table, pagination
+  src/lib/                  pure logic, no React — this is what the tests cover
+    domain.js               vocabularies, people, academic year, case IDs
+    projects.js             filter, sort, paginate, staleness, validation
+    *.test.js               65 assertions
+  src/components/           panels and primitives
 supabase/migrations/
   0001_schema.sql       tables, constraints, case-ID generation, search, audit log
   0002_rls.sql          role helpers, auth linking, Row Level Security policies
@@ -82,7 +87,7 @@ Every assertion prints PASS or aborts the run.
 ./scripts/preflight.sh
 ```
 
-Four sections, in the order a mistake costs the most:
+Five sections, in the order a mistake costs the most:
 
 1. **Secrets** — no `.env`, no JWT-shaped string, no database dump tracked by git, and
    no migration referencing the local-only test stub.
@@ -91,7 +96,17 @@ Four sections, in the order a mistake costs the most:
    these identifiers at length in order to explain why they are absent. This is the one
    rule the whole design rests on, so it is checked mechanically rather than remembered.
 3. **Prototype build** — `npm ci && npm run build`, the same thing Pages publishes.
-4. **Database suite** — stub → 0001 → 0002 → 0003 → 53 assertions.
+4. **Prototype tests** — 65 assertions over `prototype/src/lib`.
+5. **Database suite** — stub → 0001 → 0002 → 0003 → 53 assertions.
+
+Add to the tests whenever you change behaviour. The list logic lives in
+`prototype/src/lib` as pure functions specifically so a scenario can be written for it
+instead of clicked through by hand:
+
+```bash
+cd prototype && npm test          # once
+cd prototype && npx vitest        # watch, while working
+```
 
 The database section needs a scratch Postgres 16. Set `DATABASE_URL`, or let it skip
 locally and rely on CI. **It is destructive to whatever database it connects to** — it

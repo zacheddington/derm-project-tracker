@@ -137,7 +137,33 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# 4. Database suite: stub -> 0001 -> 0002 -> 0003 -> tests.
+# 4. Prototype unit tests.
+#
+# The list behaviour — filtering, sorting, pagination, staleness
+# thresholds, save validation, case-ID issuing — lives in
+# prototype/src/lib as pure functions precisely so it can be checked
+# here rather than by clicking around.
+# ---------------------------------------------------------------------
+head_ "Prototype tests"
+
+if command -v npm >/dev/null 2>&1; then
+  test_log=$(mktemp)
+  # `npm ci` already ran in the build section, so dependencies are present.
+  if (cd prototype && npm test) >"$test_log" 2>&1; then
+    n=$(sed 's/\x1b\[[0-9;]*m//g' "$test_log" | grep -oE 'Tests +[0-9]+ passed' | grep -oE '[0-9]+' | head -1)
+    pass "prototype tests — ${n:-?} assertions"
+  else
+    fail "prototype tests failed"
+    sed 's/\x1b\[[0-9;]*m//g' "$test_log" | grep -E 'FAIL|✕|AssertionError|Expected|Received' | head -20 \
+      | while read -r l; do detail "$l"; done
+  fi
+  rm -f "$test_log"
+else
+  skip "prototype tests — npm not found"
+fi
+
+# ---------------------------------------------------------------------
+# 5. Database suite: stub -> 0001 -> 0002 -> 0003 -> tests.
 #
 # Every assertion prints PASS or aborts the run, so ON_ERROR_STOP plus a
 # zero exit status is the whole verdict.
