@@ -168,6 +168,22 @@ export function updatePerson(people, id, patch) {
   });
 }
 
+/* How much a person is carrying, split the way the department reads it.
+
+   Always returns numbers, including zeros. "Rae LeBlanc — Resident" tells
+   you nothing about whether she needs a project; "Resident · 0 active
+   projects" tells you immediately, and finding the people with nothing on
+   is most of what the roster is for. */
+export function projectLoad(personId, projects = []) {
+  const mine = projects.filter((p) => p.authors?.includes(personId));
+  return {
+    active: mine.filter((p) => !p.archived_at).length,
+    archived: mine.filter((p) => p.archived_at).length,
+  };
+}
+
+export const pluralProjects = (n) => `${n} project${n === 1 ? "" : "s"}`;
+
 export function personSubtitle(person) {
   if (!person) return "";
   const role = label(STAFF_POSITIONS, person.staff_position);

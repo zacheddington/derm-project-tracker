@@ -4,7 +4,7 @@ import {
   brand, TYPES, WORK_STATUSES, SUBMISSION_STATUSES, IRB_STATUSES, CONSENT,
   VENUE_TYPES, STAFF_POSITIONS, label, activePeople,
 } from "../lib/domain.js";
-import { validateProject, changeProjectType, maxYearSeen } from "../lib/projects.js";
+import { validateProject, changeProjectType, maxYearSeen, formatDate } from "../lib/projects.js";
 import {
   Badge, Button, Field, Modal, Select, TextArea, TextInput, IdentifierNotice,
 } from "./primitives.jsx";
@@ -159,7 +159,20 @@ export default function DetailPanel({
                 {draft.details?.case_number && (
                   <span className="text-xs font-mono" style={{ color: brand.slate }}>{draft.details.case_number}</span>
                 )}
-                {draft.archived_at && <span className="text-xs" style={{ color: brand.slate }}>Archived</span>}
+                {/* When this was first entered. Only case reports have a
+                    case number, so every other type had nothing here at
+                    all — and "when did we start this?" is asked of all
+                    four. */}
+                {draft.created_at && (
+                  <span className="text-xs" style={{ color: brand.slate }}>
+                    Submitted {formatDate(draft.created_at)}
+                  </span>
+                )}
+                {draft.archived_at && (
+                  <span className="text-xs" style={{ color: brand.slate }}>
+                    Archived {formatDate(draft.archived_at)}
+                  </span>
+                )}
               </div>
               <h2 className="text-lg font-semibold leading-snug" style={{ color: brand.navy }}>{draft.title}</h2>
             </div>

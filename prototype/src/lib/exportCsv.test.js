@@ -179,6 +179,24 @@ describe("the exported sheet", () => {
     expect(parseRow(csv.split("\n")[1])[CSV_COLUMNS.indexOf("archived")]).toBe("yes");
   });
 
+  it("carries the dates a report needs, not just a yes/no", () => {
+    // "How many did we finish since July?" cannot be answered by a flag.
+    const csv = projectsToCsv([project({
+      created_at: "2026-01-15T09:00:00.000Z",
+      archived_at: "2026-07-01T00:00:00.000Z",
+    })], people);
+    const row = parseRow(csv.split("\n")[1]);
+    expect(row[CSV_COLUMNS.indexOf("created_at")]).toBe("2026-01-15");
+    expect(row[CSV_COLUMNS.indexOf("archived_at")]).toBe("2026-07-01");
+    expect(row[CSV_COLUMNS.indexOf("archived")]).toBe("yes");
+  });
+
+  it("leaves the archived date empty for a live project", () => {
+    const row = parseRow(projectsToCsv([project()], people).split("\n")[1]);
+    expect(row[CSV_COLUMNS.indexOf("archived_at")]).toBe("");
+    expect(row[CSV_COLUMNS.indexOf("archived")]).toBe("no");
+  });
+
   it("exports the update date only, never a time", () => {
     const row = parseRow(projectsToCsv([project()], people).split("\n")[1]);
     expect(row[CSV_COLUMNS.indexOf("updated_at")]).toBe("2026-08-03");

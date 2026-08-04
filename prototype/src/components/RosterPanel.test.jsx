@@ -19,13 +19,16 @@ const people = [
 ];
 
 const projects = [
-  { id: "x1", authors: ["p1", "p3"] },
-  { id: "x2", authors: ["p1", "p2"] },   // Rae on two, so the count is not 1 by accident
+  { id: "x1", authors: ["p1", "p3"], archived_at: null },
+  { id: "x2", authors: ["p1", "p2"], archived_at: null },   // Rae on two: the count is not 1 by accident
+  { id: "x3", authors: ["p1"], archived_at: "2026-02-01T00:00:00Z" },
+  // p4 Ellen Voss and p5 Ben Iwu deliberately have none.
 ];
 
 function setup() {
   const onSavePerson = vi.fn();
   const onAddPerson = vi.fn();
+  const onShowProjects = vi.fn();
   const onClose = vi.fn();
   render(
     <RosterPanel
@@ -33,11 +36,12 @@ function setup() {
       projects={projects}
       onSavePerson={onSavePerson}
       onAddPerson={onAddPerson}
+      onShowProjects={onShowProjects}
       onClose={onClose}
       now={NOW}
     />
   );
-  return { onSavePerson, onAddPerson, onClose, user: userEvent.setup() };
+  return { onSavePerson, onAddPerson, onShowProjects, onClose, user: userEvent.setup() };
 }
 
 const rows = () => within(screen.getByRole("list")).queryAllByRole("listitem");
@@ -137,9 +141,47 @@ describe("editing someone", () => {
     });
   });
 
-  it("shows how many projects someone is on, so a rename is visibly consequential", () => {
+  it("splits the load into active and archived", () => {
     setup();
-    expect(screen.getByText(/2 projects/)).toBeInTheDocument();  // Rae + Priya each on x1
+    const rae = rows().find((r) => r.textContent.includes("Rae LeBlanc"));
+    expect(rae.textContent).toContain("2 projects active");
+    expect(rae.textContent).toContain("1 project archived");
+  });
+
+  it("says zero rather than saying nothing", () => {
+    // Finding who has no work is most of what the roster is for; a person
+    // with none used to render no count at all.
+    setup();
+    const ben = rows().find((r) => r.textContent.includes("Ben Iwu"));
+    expect(ben.textContent).toContain("0 projects active");
+    expect(ben.textContent).toContain("0 projects archived");
+  });
+
+  it("pluralises the singular case", () => {
+    setup();
+    const rae = rows().find((r) => r.textContent.includes("Rae LeBlanc"));
+    expect(rae.textContent).not.toContain("1 projects archived");
+  });
+
+  it("sends you to that person's active projects", async () => {
+    const { onShowProjects, user } = setup();
+    const rae = rows().find((r) => r.textContent.includes("Rae LeBlanc"));
+    await user.click(within(rae).getByRole("button", { name: /2 projects active/ }));
+    expect(onShowProjects).toHaveBeenCalledWith("p1", false);
+  });
+
+  it("sends you to that person's archived projects", async () => {
+    const { onShowProjects, user } = setup();
+    const rae = rows().find((r) => r.textContent.includes("Rae LeBlanc"));
+    await user.click(within(rae).getByRole("button", { name: /1 project archived/ }));
+    expect(onShowProjects).toHaveBeenCalledWith("p1", true);
+  });
+
+  it("keeps the links live even at zero, so you can confirm the emptiness", async () => {
+    const { onShowProjects, user } = setup();
+    const ben = rows().find((r) => r.textContent.includes("Ben Iwu"));
+    await user.click(within(ben).getByRole("button", { name: /0 projects active/ }));
+    expect(onShowProjects).toHaveBeenCalledWith("p5", false);
   });
 
   it("will not save an empty name", async () => {

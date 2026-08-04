@@ -1,16 +1,23 @@
 /* ---------------------------------------------------------------------
-   Project list behaviour: filtering, sorting, pagination, staleness and
+   Project list behaviour: filtering, sorting, pagination, age labels and
    validation. Pure functions, no React, no clock of their own.
    --------------------------------------------------------------------- */
 
 import { WORK_STATUSES, TYPES, label, nextCaseId, academicYearOf } from "./domain.js";
 
 export const DAY = 864e5;
-export const STALE_DAYS = 90;
-export const ANCIENT_DAYS = 365;
 export const PAGE_SIZE = 20;
 
 /* --------------------------------- age --------------------------------- */
+
+/* Dates are shown, never parsed back. ISO in, readable out; the day is
+   what anyone means by "when was this submitted". */
+export function formatDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
 
 export const ageInDays = (project, now = Date.now()) =>
   Math.floor((now - new Date(project.updated_at).getTime()) / DAY);
@@ -25,22 +32,6 @@ export function stalenessLabel(project, now = Date.now()) {
   return years === 1 ? "over a year ago" : `over ${years} years ago`;
 }
 
-/* The two banner counts.
-
-   These deliberately OVERLAP: a project untouched for two years is also a
-   project untouched for over three months, and the amber banner says
-   "over three months", so it must include it. The red banner is a subset
-   the amber one is telling the truth about. Clicking either applies the
-   filter that matches its own wording exactly, so the number on the
-   banner always equals the number of rows you land on. */
-export function stalenessCounts(projects, now = Date.now()) {
-  const live = projects.filter((p) => !p.archived_at);
-  return {
-    stale: live.filter((p) => ageInDays(p, now) > STALE_DAYS).length,
-    ancient: live.filter((p) => ageInDays(p, now) > ANCIENT_DAYS).length,
-  };
-}
-
 /* ------------------------------ filtering ------------------------------ */
 
 export const EMPTY_FILTERS = {
@@ -49,11 +40,46 @@ export const EMPTY_FILTERS = {
   status: "all",
   author: "all",
   year: "all",
-  stale: "all", // "all" | "stale" | "ancient"
   archived: false,
 };
 
-export function filterProjects(projects, filters = {}, now = Date.now()) {
+/* Everything the search box looks at, for one project.
+
+   Two rules, and they pull in opposite directions on purpose.
+
+   Everything VISIBLE in the table is searchable, because otherwise typing
+   a word you can see in front of you returns nothing: "research" has to
+   match the Type column, an author's name has to match the Authors
+   column, a venue has to match Venues.
+
+   Everything HIDDEN but useful stays searchable too — purpose, notes,
+   diagnosis. Those are where the substance of a project lives, and losing
+   them would make the box worse at the one job it is best at. The cost is
+   that a hit can land on a row without showing why; that is a fair trade
+   for being able to find "the gliptin one" from memory. */
+export function searchableText(project, nameOf = (id) => id) {
+  return [
+    // Visible columns
+    project.title,
+    label(TYPES, project.project_type),
+    label(WORK_STATUSES, project.work_status),
+    ...project.authors.map(nameOf),
+    ...project.venues.map((v) => v.venue_name),
+    ...project.venues.map((v) => v.other_venue_description),
+    // Not on the table, but worth finding by
+    project.purpose,
+    project.notes,
+    project.details?.diagnosis,
+    project.details?.case_number,
+    project.details?.description,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+export function filterProjects(projects, filters = {}, options = {}) {
+  const { nameOf = (id) => id } = options;
   const f = { ...EMPTY_FILTERS, ...filters };
   const t = f.q.trim().toLowerCase();
 
@@ -63,15 +89,7 @@ export function filterProjects(projects, filters = {}, now = Date.now()) {
     if (f.status !== "all" && p.work_status !== f.status) return false;
     if (f.author !== "all" && !p.authors.includes(f.author)) return false;
     if (f.year !== "all" && String(p.academic_year) !== String(f.year)) return false;
-    if (f.stale === "stale" && ageInDays(p, now) <= STALE_DAYS) return false;
-    if (f.stale === "ancient" && ageInDays(p, now) <= ANCIENT_DAYS) return false;
-    if (t) {
-      const hay = [p.title, p.purpose, p.notes, p.details?.diagnosis, p.details?.case_number]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      if (!hay.includes(t)) return false;
-    }
+    if (t && !searchableText(p, nameOf).includes(t)) return false;
     return true;
   });
 }
@@ -98,16 +116,6 @@ export function nextSort(current, column) {
   if (!current || current.column !== column) return { column, dir: first };
   if (current.dir === first) return { column, dir: first === "asc" ? "desc" : "asc" };
   return null;
-}
-
-/* Clicking the banner that is already applied takes the filter off again.
-
-   Without this the only way back is to hunt for the age dropdown, which
-   is a strange thing to have to do when the control that got you here is
-   still on screen. Clicking the OTHER banner switches to that one rather
-   than clearing. */
-export function nextStaleFilter(current, kind) {
-  return current === kind ? "all" : kind;
 }
 
 /* One shared collator. `String.prototype.localeCompare` builds a fresh

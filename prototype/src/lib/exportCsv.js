@@ -20,7 +20,7 @@ export const CSV_COLUMNS = [
   "title", "project_type", "work_status", "academic_year", "authors", "resident_authors",
   "case_number", "diagnosis", "why_unique", "year_seen", "consent", "attending",
   "description", "irb_status", "purpose", "venues", "next_action",
-  "next_action_due_date", "updated_at", "archived",
+  "next_action_due_date", "created_at", "updated_at", "archived", "archived_at",
 ];
 
 /* Spreadsheet formula injection.
@@ -82,8 +82,12 @@ export function projectsToCsv(projects, people) {
     p.venues.map((v) => `${venueLabel(v)} (${label(SUBMISSION_STATUSES, v.submission_status)})`).join("; "),
     p.next_action,
     p.next_action_due_date,
+    // Dates, not just a flag: "how many finished since July?" is a real
+    // question and a yes/no column cannot answer it.
+    p.created_at ? p.created_at.slice(0, 10) : "",
     p.updated_at.slice(0, 10),
     p.archived_at ? "yes" : "no",
+    p.archived_at ? p.archived_at.slice(0, 10) : "",
   ]);
 
   return [CSV_COLUMNS.join(","), ...rows.map((r) => r.map(escapeCsv).join(","))].join("\n");

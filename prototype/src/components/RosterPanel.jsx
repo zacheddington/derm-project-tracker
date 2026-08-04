@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { X, Plus, Check, Pencil, Search } from "lucide-react";
 import {
-  brand, STAFF_POSITIONS, label, personSubtitle, needsExternalPosition, isPersonActive, filterRoster,
+  brand, STAFF_POSITIONS, label, personSubtitle, needsExternalPosition, isPersonActive,
+  filterRoster, projectLoad, pluralProjects,
 } from "../lib/domain.js";
 import { Button, Field, Select, TextInput } from "./primitives.jsx";
 
@@ -21,7 +22,7 @@ import { Button, Field, Select, TextInput } from "./primitives.jsx";
       while leaving every past attribution intact.
    --------------------------------------------------------------------- */
 
-function PersonRow({ person, projectCount, onSave, now }) {
+function PersonRow({ person, load, onSave, onShowProjects, now }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(person);
 
@@ -59,9 +60,31 @@ function PersonRow({ person, projectCount, onSave, now }) {
               </span>
             )}
           </div>
+          {/* The counts are always shown, zeros included. "0 active
+              projects" is the most useful thing this panel can say — it
+              is how you find who needs one. Both are links straight to
+              that person's rows, because the next question after "who has
+              none?" is always "what does everyone else have?" */}
           <div className="text-xs" style={{ color: brand.slate }}>
             {personSubtitle(person)}
-            {projectCount > 0 && ` · ${projectCount} project${projectCount === 1 ? "" : "s"}`}
+            {" · "}
+            <button
+              type="button"
+              onClick={() => onShowProjects(person.id, false)}
+              className="underline underline-offset-2 hover:no-underline"
+              style={{ color: load.active ? brand.navy : brand.slate }}
+            >
+              {pluralProjects(load.active)} active
+            </button>
+            {" · "}
+            <button
+              type="button"
+              onClick={() => onShowProjects(person.id, true)}
+              className="underline underline-offset-2 hover:no-underline"
+              style={{ color: load.archived ? brand.navy : brand.slate }}
+            >
+              {pluralProjects(load.archived)} archived
+            </button>
           </div>
         </div>
         <button
@@ -119,7 +142,9 @@ function PersonRow({ person, projectCount, onSave, now }) {
   );
 }
 
-export default function RosterPanel({ people, projects, onSavePerson, onAddPerson, onClose, now = Date.now() }) {
+export default function RosterPanel({
+  people, projects, onSavePerson, onAddPerson, onShowProjects, onClose, now = Date.now(),
+}) {
   const [showFormer, setShowFormer] = useState(false);
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
@@ -127,7 +152,7 @@ export default function RosterPanel({ people, projects, onSavePerson, onAddPerso
   const [newStaffPosition, setNewStaffPosition] = useState("resident");
   const [newExternalPosition, setNewExternalPosition] = useState("");
 
-  const countFor = (id) => projects.filter((p) => p.authors.includes(id)).length;
+  const loadFor = (id) => projectLoad(id, projects);
   const shown = filterRoster(people, { showFormer, query }, now);
   const formerCount = people.filter((p) => !isPersonActive(p, now)).length;
 
@@ -233,7 +258,8 @@ export default function RosterPanel({ people, projects, onSavePerson, onAddPerso
           <div role="list" aria-label={showFormer ? "Former staff" : "Current staff"}
                className="rounded-lg overflow-hidden" style={{ border: `1px solid ${brand.border}` }}>
             {shown.map((p) => (
-              <PersonRow key={p.id} person={p} projectCount={countFor(p.id)} onSave={onSavePerson} now={now} />
+              <PersonRow key={p.id} person={p} load={loadFor(p.id)} onSave={onSavePerson}
+                         onShowProjects={onShowProjects} now={now} />
             ))}
             {shown.length === 0 && (
               <p className="text-sm px-3 py-4" style={{ color: brand.slate }}>

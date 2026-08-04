@@ -2,18 +2,14 @@ import { describe, it, expect } from "vitest";
 import {
   ageInDays,
   stalenessLabel,
-  stalenessCounts,
   filterProjects,
   nextSort,
-  nextStaleFilter,
   sortProjects,
   paginate,
   pageCount,
   validateProject,
   maxYearSeen,
   changeProjectType,
-  STALE_DAYS,
-  ANCIENT_DAYS,
   PAGE_SIZE,
 } from "./projects.js";
 
@@ -53,38 +49,6 @@ describe("staleness", () => {
     expect(stalenessLabel(project({ updated_at: daysAgo(800) }), NOW)).toBe("over 2 years ago");
   });
 
-  it("counts the two banners, with the older set nested inside the newer", () => {
-    const projects = [
-      project({ id: "a", updated_at: daysAgo(10) }),
-      project({ id: "b", updated_at: daysAgo(120) }),
-      project({ id: "c", updated_at: daysAgo(400) }),
-      project({ id: "d", updated_at: daysAgo(900) }),
-    ];
-    const c = stalenessCounts(projects, NOW);
-    // "over three months" is literally true of the two-year-old ones too,
-    // so the amber banner must include them or its own sentence is wrong.
-    expect(c.stale).toBe(3);
-    expect(c.ancient).toBe(2);
-  });
-
-  it("ignores archived projects in both counts", () => {
-    const projects = [
-      project({ id: "a", updated_at: daysAgo(400), archived_at: daysAgo(1) }),
-      project({ id: "b", updated_at: daysAgo(400) }),
-    ];
-    expect(stalenessCounts(projects, NOW)).toEqual({ stale: 1, ancient: 1 });
-  });
-
-  it("does not fire a day early on either threshold", () => {
-    // Each threshold is checked on its own. Putting both in one array
-    // would not test the boundary: a 365-day-old project is over three
-    // months old too, so it lands in the amber count either way.
-    const at = (n) => stalenessCounts([project({ updated_at: daysAgo(n) })], NOW);
-    expect(at(STALE_DAYS).stale).toBe(0);
-    expect(at(STALE_DAYS + 1).stale).toBe(1);
-    expect(at(ANCIENT_DAYS).ancient).toBe(0);
-    expect(at(ANCIENT_DAYS + 1).ancient).toBe(1);
-  });
 });
 
 describe("filtering", () => {
@@ -94,7 +58,7 @@ describe("filtering", () => {
     project({ id: "c", title: "Teledermatology triage", project_type: "research", work_status: "analyzing", authors: ["p3"], updated_at: daysAgo(400) }),
     project({ id: "d", title: "Archived thing", project_type: "research", authors: ["p1"], archived_at: daysAgo(5) }),
   ];
-  const ids = (f) => filterProjects(projects, f, NOW).map((p) => p.id);
+  const ids = (f) => filterProjects(projects, f, { nameOf }).map((p) => p.id);
 
   it("hides archived projects by default and shows only those when asked", () => {
     expect(ids({})).toEqual(["a", "b", "c"]);
@@ -109,45 +73,50 @@ describe("filtering", () => {
     expect(ids({ year: "2025" })).toEqual(["b"]);
   });
 
-  it("searches title, purpose, notes, diagnosis and case ID", () => {
+  it("searches the things you can see in the table", () => {
+    // Typing a word that is visibly on screen has to return the row it is
+    // on. Type and status are rendered as labels, so the label is what
+    // gets matched, not the code.
+    expect(ids({ q: "research" })).toEqual(["c"]);       // Type column
+    expect(ids({ q: "case report" })).toEqual(["b"]);    // Type column
+    expect(ids({ q: "analyzing" })).toEqual(["c"]);      // Status column
+    expect(ids({ q: "complete" })).toEqual(["b"]);       // Status column
+    expect(ids({ q: "Priya" })).toEqual(["b", "c"]);     // Authors column
+    expect(ids({ q: "leblanc" })).toEqual(["a"]);        // Authors column
+  });
+
+  it("matches a venue name, which is also on the table", () => {
+    const withVenue = [
+      project({ id: "v", title: "Something", venues: [
+        { id: "v1", venue_name: "AAD Annual Meeting", venue_type: "poster" },
+      ] }),
+    ];
+    expect(filterProjects(withVenue, { q: "aad" }, { nameOf })).toHaveLength(1);
+  });
+
+  it("still searches what the table does not show", () => {
+    // Purpose, notes, diagnosis and case number stay searchable. A hit can
+    // land on a row without visibly showing why, and that is the accepted
+    // cost of being able to find a project from memory.
     expect(ids({ q: "alopecia" })).toEqual(["a"]);
-    expect(ids({ q: "pemphigoid" })).toEqual(["b"]);
-    expect(ids({ q: "CR-2025" })).toEqual(["b"]);
-    expect(ids({ q: "  TRIAGE " })).toEqual(["c"]);
+    expect(ids({ q: "pemphigoid" })).toEqual(["b"]);     // title AND diagnosis
+    expect(ids({ q: "CR-2025" })).toEqual(["b"]);        // case number
+    expect(ids({ q: "  TRIAGE " })).toEqual(["c"]);      // trimmed, case-insensitive
   });
 
-  it("applies the staleness filters the banners set", () => {
-    expect(ids({ stale: "stale" })).toEqual(["b", "c"]);
-    expect(ids({ stale: "ancient" })).toEqual(["c"]);
+  it("searches the status label rather than its code", () => {
+    // A user reads "Researching/analyzing", never "analyzing" — but the
+    // code is a substring of the label, so both have to work.
+    expect(ids({ q: "Researching" })).toEqual(["c"]);
   });
 
-  it("clears its own filter when the same banner is clicked twice", () => {
-    expect(nextStaleFilter("all", "stale")).toBe("stale");
-    expect(nextStaleFilter("stale", "stale")).toBe("all");
-    expect(nextStaleFilter("ancient", "ancient")).toBe("all");
-  });
-
-  it("switches rather than clearing when the other banner is clicked", () => {
-    expect(nextStaleFilter("stale", "ancient")).toBe("ancient");
-    expect(nextStaleFilter("ancient", "stale")).toBe("stale");
-  });
-
-  it("round-trips: apply then clear returns the full list", () => {
-    const applied = nextStaleFilter("all", "ancient");
-    expect(filterProjects(projects, { stale: applied }, NOW).map((p) => p.id)).toEqual(["c"]);
-    const cleared = nextStaleFilter(applied, "ancient");
-    expect(filterProjects(projects, { stale: cleared }, NOW).map((p) => p.id)).toEqual(["a", "b", "c"]);
-  });
-
-  it("makes each banner's count equal the rows it lands you on", () => {
-    const counts = stalenessCounts(projects, NOW);
-    expect(filterProjects(projects, { stale: "stale" }, NOW)).toHaveLength(counts.stale);
-    expect(filterProjects(projects, { stale: "ancient" }, NOW)).toHaveLength(counts.ancient);
+  it("returns nothing when nothing matches, rather than everything", () => {
+    expect(ids({ q: "zzzz" })).toEqual([]);
   });
 
   it("combines filters", () => {
-    expect(ids({ author: "p3", stale: "ancient" })).toEqual(["c"]);
-    expect(ids({ author: "p1", stale: "ancient" })).toEqual([]);
+    expect(ids({ author: "p3", type: "research" })).toEqual(["c"]);
+    expect(ids({ author: "p1", type: "research" })).toEqual([]);
   });
 });
 

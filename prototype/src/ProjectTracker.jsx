@@ -11,7 +11,7 @@ import {
 } from "./lib/domain.js";
 import {
   EMPTY_FILTERS, PAGE_SIZE, filterProjects, sortProjects, nextSort, paginate,
-  stalenessCounts, stalenessLabel, nextStaleFilter,
+  stalenessLabel,
 } from "./lib/projects.js";
 import { downloadCsv } from "./lib/exportCsv.js";
 import { Badge } from "./components/primitives.jsx";
@@ -41,202 +41,323 @@ import RosterPanel from "./components/RosterPanel.jsx";
 const CURRENT_AY = academicYearOf(new Date());
 const daysAgo = (n) => new Date(Date.now() - n * 864e5).toISOString();
 
-const seedPeople = [
-  { id: "p1", display_name: "Rae LeBlanc", staff_position: "resident", pgy_level: 2, employment_end_date: null },
-  { id: "p2", display_name: "Tomi Okafor", staff_position: "resident", pgy_level: 3, employment_end_date: null },
-  { id: "p3", display_name: "Priya Raman", staff_position: "attending", employment_end_date: null },
-  { id: "p4", display_name: "Dana Reyes", staff_position: "research_fellow", employment_end_date: null },
-  { id: "p5", display_name: "Marcus Hale", staff_position: "resident", pgy_level: 4, employment_end_date: null },
-  { id: "p6", display_name: "Ellen Voss", staff_position: "resident", pgy_level: 1, employment_end_date: "2025-06-30" },
-  { id: "p7", display_name: "Sofia Marchetti", staff_position: "attending", employment_end_date: null },
-  {
-    id: "p8", display_name: "Ben Iwu", staff_position: "external_collaborator",
-    external_position: "Dermatopathologist, Baptist Health", employment_end_date: null,
-  },
-];
+/* ------------------------------ sample data ------------------------------
 
+   THE PEOPLE ARE REAL. The projects are not.
+
+   The roster below is the actual UMMC dermatology department, used so the
+   design can be judged against a realistic number of people rather than
+   six invented ones — twenty-three names behave very differently from
+   six in a picker, a filter and a roster.
+
+   Every project, venue, status and authorship attached to them is
+   INVENTED for design purposes. Nobody listed here has been consulted
+   about, or is associated with, any project shown. The banner at the top
+   of the page says so, and it must keep saying so for as long as real
+   names are in this file.
+
+   pgy_level is deliberately absent for the residents: it is a real fact
+   about a real person and inventing one would be making it up. Fill it in
+   from the program's own list, or leave it out.
+   ------------------------------------------------------------------------ */
+
+const seedPeople = [
+  { id: "p1",  display_name: "Mark Albrecht",       staff_position: "resident" },
+  { id: "p2",  display_name: "Georgia Hughey",      staff_position: "resident" },
+  { id: "p3",  display_name: "Sarah Bridgeman",     staff_position: "resident" },
+  { id: "p4",  display_name: "Leigh Hickham",       staff_position: "resident" },
+  { id: "p5",  display_name: "Callie Cross",        staff_position: "resident" },
+  { id: "p6",  display_name: "Jenna Benje",         staff_position: "resident" },
+  { id: "p7",  display_name: "Cody Estev",          staff_position: "resident" },
+  { id: "p8",  display_name: "Sarah Eley",          staff_position: "resident" },
+  { id: "p9",  display_name: "Sarah Fillingin",     staff_position: "resident" },
+  { id: "p10", display_name: "Rachel Simmons",      staff_position: "resident" },
+  { id: "p11", display_name: "Summer Morrissette",  staff_position: "resident" },
+  { id: "p12", display_name: "Bob Brodell",         staff_position: "attending" },
+  { id: "p13", display_name: "Jeremy Jackson",      staff_position: "attending" },
+  { id: "p14", display_name: "Steve Helms",         staff_position: "attending" },
+  { id: "p15", display_name: "Amy Flieschel",       staff_position: "attending" },
+  { id: "p16", display_name: "Chelsea Mockbee",     staff_position: "attending" },
+  { id: "p17", display_name: "Allison Cruze",       staff_position: "attending" },
+  { id: "p18", display_name: "Kimberly Ward",       staff_position: "attending" },
+  { id: "p19", display_name: "Molly Webb",          staff_position: "attending" },
+  { id: "p20", display_name: "Emily Sauce",         staff_position: "attending" },
+  { id: "p21", display_name: "John Michael Joseph", staff_position: "fellow" },
+  { id: "p22", display_name: "Avery Watson",        staff_position: "research_fellow" },
+  { id: "p23", display_name: "Morgan Claire Belle", staff_position: "medical_student" },
+].map((p) => ({ employment_end_date: null, ...p }));
+
+/* Defaults for the fields every project has, so the list below shows only
+   what makes each one different. */
+const project = (o) => ({
+  purpose: "",
+  notes: "",
+  next_action: "",
+  next_action_due_date: "",
+  irb_status: "not_applicable",
+  academic_year: CURRENT_AY,
+  archived_at: null,
+  details: {},
+  venues: [],
+  ...o,
+});
+
+const venue = (id, venue_type, venue_name, submission_status) => ({
+  id, venue_type, venue_name, submission_status,
+  other_venue_description: "", target_date: "", notes: "",
+});
+
+/* Deliberately uneven. Some people carry three, several carry none, and a
+   few have only archived work — that spread is the whole point of the
+   roster, and a tidy one-each distribution would hide it. */
 const seedProjects = [
-  {
+  project({
     id: "x1",
     title: "Disseminated gonococcal rash",
     project_type: "case_report",
     work_status: "in_edit",
-    authors: ["p1", "p3"],
+    authors: ["p1", "p12"],
     purpose: "Atypical sequence of findings; useful teaching case for the residency.",
-    notes:
-      "Pustular rash preceded the joint symptoms by nine days, which is backwards from the usual teaching.\n\nImmunofluorescence images are on the shared drive. Priya has the original clinical photos.",
+    notes: "Pustular rash preceded the joint symptoms by nine days, which is backwards from the usual teaching.",
     next_action: "Return revisions to JAAD Case Reports",
     next_action_due_date: new Date(Date.now() + 9 * 864e5).toISOString().slice(0, 10),
-    irb_status: "not_applicable",
-    academic_year: CURRENT_AY,
+    created_at: daysAgo(120),
     updated_at: daysAgo(3),
-    archived_at: null,
     details: {
       case_number: `CR-${CURRENT_AY}-001`,
       diagnosis: "Disseminated gonococcal infection",
       why_unique: "Cutaneous findings preceded arthritis by over a week.",
-      attending_id: "p3",
+      attending_id: "p12",
       year_seen: CURRENT_AY,
       patient_consent_obtained: "yes",
     },
     venues: [
-      { id: "v1", venue_type: "poster", venue_name: "Mississippi Dermatology Society Annual", other_venue_description: "", submission_status: "accepted", target_date: "", notes: "" },
-      { id: "v2", venue_type: "journal", venue_name: "JAAD Case Reports", other_venue_description: "", submission_status: "revisions_requested", target_date: "", notes: "Reviewer 2 wants a wider differential." },
+      venue("v1", "poster", "Mississippi Dermatology Society Annual", "accepted"),
+      venue("v2", "journal", "JAAD Case Reports", "revisions_requested"),
     ],
-  },
-  {
+  }),
+  project({
     id: "x2",
     title: "Reducing no-shows in resident continuity clinic",
     project_type: "qa_qi",
     work_status: "collecting_data",
-    authors: ["p2", "p4"],
+    authors: ["p2", "p22"],
     purpose: "No-shows are eating roughly a fifth of resident clinic slots.",
     notes: "Baseline pulled from the scheduling report. Two-touch reminder pilot starts next block.",
     next_action: "Pull month two of reminder data",
     next_action_due_date: new Date(Date.now() + 21 * 864e5).toISOString().slice(0, 10),
     irb_status: "exempt_determination",
-    academic_year: CURRENT_AY,
+    created_at: daysAgo(150),
     updated_at: daysAgo(11),
-    archived_at: null,
     details: {
       description: "Two-touch reminder intervention in resident continuity clinic.",
       aim_statement: "Reduce the no-show rate from 22% to 15% by the end of the academic year.",
       measure: "Monthly no-show rate from the scheduling report.",
     },
-    venues: [
-      { id: "v3", venue_type: "internal_presentation", venue_name: "Departmental QI Day", other_venue_description: "", submission_status: "not_yet_submitted", target_date: "", notes: "" },
-    ],
-  },
-  {
+    venues: [venue("v3", "internal_presentation", "Departmental QI Day", "not_yet_submitted")],
+  }),
+  project({
     id: "x3",
     title: "Teledermatology triage accuracy for pigmented lesions",
     project_type: "research",
     work_status: "analyzing",
-    authors: ["p5"],
+    authors: ["p3", "p13"],
     purpose: "Establish whether store-and-forward triage is safe for our referral volume.",
-    notes: "Retrospective chart review, 18 months of referrals. Stats support from Dana.",
+    notes: "Retrospective chart review, 18 months of referrals.",
     next_action: "Finish interrater agreement analysis",
-    next_action_due_date: "",
     irb_status: "approved",
-    academic_year: CURRENT_AY,
+    created_at: daysAgo(300),
     updated_at: daysAgo(31),
-    archived_at: null,
     details: {
       description: "Retrospective comparison of teledermatology triage against in-person assessment.",
       study_design: "retrospective",
       data_source: "Referral records, 18-month window",
     },
-    venues: [
-      { id: "v4", venue_type: "conference_presentation", venue_name: "AAD Annual Meeting", other_venue_description: "", submission_status: "submitted", target_date: "", notes: "" },
-    ],
-  },
-  {
+    venues: [venue("v4", "conference_presentation", "AAD Annual Meeting", "submitted")],
+  }),
+  project({
     id: "x4",
     title: "JAK inhibitors in adolescent alopecia areata",
     project_type: "review",
     work_status: "idea",
     authors: ["p1"],
-    purpose: "",
-    notes: "Mentioned at journal club. Worth checking whether anyone has covered the adolescent population specifically.",
-    next_action: "",
-    next_action_due_date: "",
-    irb_status: "not_applicable",
-    academic_year: CURRENT_AY,
+    notes: "Mentioned at journal club. Worth checking whether the adolescent population is covered anywhere.",
+    created_at: daysAgo(100),
     updated_at: daysAgo(96),
-    archived_at: null,
-    details: { description: "Scoping review of JAK inhibitor use in adolescents.", review_type: "scoping", research_question: "" },
-    venues: [],
-  },
-  {
+    details: { description: "Scoping review of JAK inhibitor use in adolescents.", review_type: "scoping" },
+  }),
+  project({
     id: "x5",
     title: "Bullous pemphigoid after gliptin exposure",
     project_type: "case_report",
     work_status: "complete",
-    authors: ["p2", "p3"],
-    purpose: "",
+    authors: ["p4", "p12"],
     notes: "Published last spring.",
-    next_action: "",
-    next_action_due_date: "",
-    irb_status: "not_applicable",
     academic_year: CURRENT_AY - 1,
+    created_at: daysAgo(520),
     updated_at: daysAgo(210),
-    archived_at: null,
+    archived_at: daysAgo(200),
     details: {
       case_number: `CR-${CURRENT_AY - 1}-004`,
       diagnosis: "Bullous pemphigoid",
       why_unique: "Onset fourteen months after starting therapy.",
-      attending_id: "p3",
+      attending_id: "p12",
       year_seen: CURRENT_AY - 1,
       patient_consent_obtained: "yes",
     },
-    venues: [
-      { id: "v5", venue_type: "journal", venue_name: "JAAD Case Reports", other_venue_description: "", submission_status: "presented_published", target_date: "", notes: "" },
-    ],
-  },
-  /* Deliberately ancient, so the red banner has something to point at. */
-  {
+    venues: [venue("v5", "journal", "JAAD Case Reports", "presented_published")],
+  }),
+  project({
     id: "x6",
     title: "Nail unit melanoma referral patterns",
     project_type: "research",
     work_status: "on_hold",
-    authors: ["p5", "p8"],
+    authors: ["p3", "p14"],
     purpose: "Started before the fellowship changed hands and never picked back up.",
-    notes: "Data pull exists. Nobody has looked at it since.",
-    next_action: "",
-    next_action_due_date: "",
     irb_status: "approved",
     academic_year: CURRENT_AY - 1,
+    created_at: daysAgo(600),
     updated_at: daysAgo(430),
-    archived_at: null,
-    details: { description: "Referral pattern review for nail unit melanoma.", study_design: "retrospective", data_source: "Referral log" },
-    venues: [],
-  },
+    details: { description: "Referral pattern review for nail unit melanoma.", study_design: "retrospective" },
+  }),
+  project({
+    id: "x7",
+    title: "Hidradenitis suppurativa biologic access barriers",
+    project_type: "qa_qi",
+    work_status: "rough_draft",
+    authors: ["p5", "p16"],
+    purpose: "Prior authorisation is the rate-limiting step for most of these patients.",
+    next_action: "Draft the results section",
+    irb_status: "exempt_determination",
+    created_at: daysAgo(210),
+    updated_at: daysAgo(8),
+    details: {
+      description: "Time-to-approval audit for biologic prior authorisations.",
+      aim_statement: "Reduce median time to approval from 34 to 21 days.",
+      measure: "Median days from submission to decision.",
+    },
+    venues: [venue("v6", "internal_presentation", "Departmental QI Day", "accepted")],
+  }),
+  project({
+    id: "x8",
+    title: "Pemphigus vulgaris presenting as isolated oral disease",
+    project_type: "case_report",
+    work_status: "planning",
+    authors: ["p6", "p17"],
+    created_at: daysAgo(45),
+    updated_at: daysAgo(20),
+    details: {
+      case_number: `CR-${CURRENT_AY}-002`,
+      diagnosis: "Pemphigus vulgaris",
+      why_unique: "Nine months of oral-only disease before any cutaneous involvement.",
+      attending_id: "p17",
+      year_seen: CURRENT_AY,
+      patient_consent_obtained: "not_yet",
+    },
+  }),
+  project({
+    id: "x9",
+    title: "Dermoscopy training for primary care referrers",
+    project_type: "qa_qi",
+    work_status: "idea",
+    authors: ["p7"],
+    purpose: "Most benign referrals could be filtered upstream.",
+    created_at: daysAgo(30),
+    updated_at: daysAgo(30),
+    details: { description: "Short-course dermoscopy training for referring clinics." },
+  }),
+  project({
+    id: "x10",
+    title: "Cutaneous sarcoidosis mimicking granuloma annulare",
+    project_type: "case_report",
+    work_status: "in_edit",
+    authors: ["p8", "p19"],
+    created_at: daysAgo(75),
+    updated_at: daysAgo(14),
+    details: {
+      case_number: `CR-${CURRENT_AY}-003`,
+      diagnosis: "Cutaneous sarcoidosis",
+      why_unique: "Clinically indistinguishable from granuloma annulare until biopsy.",
+      attending_id: "p19",
+      year_seen: CURRENT_AY,
+      patient_consent_obtained: "yes",
+    },
+    venues: [venue("v7", "poster", "Mississippi Dermatology Society Annual", "submitted")],
+  }),
+  project({
+    id: "x11",
+    title: "Isotretinoin monitoring intervals and laboratory yield",
+    project_type: "research",
+    work_status: "collecting_data",
+    authors: ["p10", "p15", "p22"],
+    purpose: "Monthly labs may be more than the evidence supports.",
+    irb_status: "submitted",
+    created_at: daysAgo(160),
+    updated_at: daysAgo(5),
+    details: {
+      description: "Retrospective yield of routine monitoring labs during isotretinoin therapy.",
+      study_design: "retrospective",
+      data_source: "Pharmacy and laboratory records",
+    },
+  }),
+  project({
+    id: "x12",
+    title: "Topical steroid phobia among caregivers of children with atopic dermatitis",
+    project_type: "research",
+    work_status: "analyzing",
+    authors: ["p11", "p18"],
+    irb_status: "approved",
+    created_at: daysAgo(280),
+    updated_at: daysAgo(40),
+    details: {
+      description: "Survey of caregiver beliefs about topical corticosteroids.",
+      study_design: "survey",
+      data_source: "Clinic-administered questionnaire",
+    },
+    venues: [venue("v8", "conference_presentation", "Society for Pediatric Dermatology", "not_yet_submitted")],
+  }),
+  project({
+    id: "x13",
+    title: "Merkel cell carcinoma outcomes in a rural referral population",
+    project_type: "research",
+    work_status: "complete",
+    authors: ["p21", "p14"],
+    academic_year: CURRENT_AY - 1,
+    irb_status: "approved",
+    created_at: daysAgo(700),
+    updated_at: daysAgo(260),
+    archived_at: daysAgo(250),
+    details: {
+      description: "Outcome review of Merkel cell carcinoma across a rural catchment.",
+      study_design: "retrospective",
+      data_source: "Tumour registry",
+    },
+    venues: [venue("v9", "journal", "Journal of the American Academy of Dermatology", "presented_published")],
+  }),
+  project({
+    id: "x14",
+    title: "Biologic screening checklist adherence",
+    project_type: "qa_qi",
+    work_status: "abandoned",
+    authors: ["p2"],
+    notes: "Superseded by the pharmacy-led process.",
+    academic_year: CURRENT_AY - 1,
+    created_at: daysAgo(480),
+    updated_at: daysAgo(300),
+    archived_at: daysAgo(295),
+    details: { description: "Audit of pre-biologic screening checklist completion." },
+  }),
+  project({
+    id: "x15",
+    title: "Scalp psoriasis treatment ladders: a narrative review",
+    project_type: "review",
+    work_status: "rough_draft",
+    authors: ["p23", "p20"],
+    created_at: daysAgo(60),
+    updated_at: daysAgo(2),
+    details: { description: "Narrative review of scalp psoriasis treatment sequencing.", review_type: "narrative" },
+  }),
 ];
-
-/* ------------------------------ the banners ----------------------------- */
-
-function StalenessBanner({ tone, count, noun, dismissLabel, active, onToggle, onDismiss }) {
-  const edge = tone === "danger" ? brand.alertBorder : brand.warnBorder;
-  const palette = tone === "danger"
-    ? { background: brand.alertBg, border: `1px solid ${brand.alertBorder}`, color: brand.alertText }
-    : { background: brand.warnBg, border: `1px solid ${brand.warnBorder}`, color: brand.warnText };
-
-  return (
-    <div
-      className="rounded-lg mb-3 flex items-stretch overflow-hidden"
-      style={{ ...palette, ...(active ? { boxShadow: `inset 0 0 0 1px ${edge}`, filter: "brightness(0.985)" } : {}) }}
-    >
-      <button
-        onClick={onToggle}
-        aria-pressed={active}
-        className="flex-1 text-left px-3.5 py-2.5 text-sm flex items-center gap-2 hover:brightness-[0.97]"
-      >
-        {tone === "danger"
-          ? <AlertTriangle size={15} className="shrink-0" aria-hidden="true" />
-          : <Clock size={15} className="shrink-0" aria-hidden="true" />}
-        <span>
-          {count} project{count === 1 ? " has" : "s have"} not been touched in over {noun}.
-          {/* The same control both applies and clears the filter. Sending
-              someone to the dropdown to undo what this button did is a
-              small maze with the exit hidden. */}
-          <span className="opacity-70">
-            {active
-              ? " Showing them now — click again to clear."
-              : ` Click to see ${count === 1 ? "it" : "them"}.`}
-          </span>
-        </span>
-      </button>
-      <button
-        onClick={onDismiss}
-        aria-label={dismissLabel}
-        className="px-3 hover:brightness-[0.94]"
-        style={{ borderLeft: `1px solid ${edge}` }}
-      >
-        <X size={15} />
-      </button>
-    </div>
-  );
-}
 
 /* ---------------------------- sortable header --------------------------- */
 
@@ -269,7 +390,6 @@ export default function ProjectTracker() {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [sort, setSort] = useState(null);
   const [page, setPage] = useState(1);
-  const [dismissed, setDismissed] = useState({ stale: false, ancient: false });
 
   const now = () => Date.now();
 
@@ -334,32 +454,39 @@ export default function ProjectTracker() {
   );
 
   const matched = useMemo(
-    () => sortProjects(filterProjects(projects, filters, now()), sort, nameOf),
+    () => sortProjects(filterProjects(projects, filters, { nameOf }), sort, nameOf),
     [projects, filters, sort, people]
   );
 
   const view = useMemo(() => paginate(matched, page, PAGE_SIZE), [matched, page]);
 
+  /* The tiles count whichever set you are looking at — active or
+     archived — so the number on a tile always matches the number of rows
+     clicking it produces. Counting only live projects while the table
+     showed the archive was a small lie the tiles told constantly. */
   const counts = useMemo(() => {
-    const live = projects.filter((p) => !p.archived_at);
+    const inScope = projects.filter((p) => Boolean(p.archived_at) === filters.archived);
     return {
-      total: live.length,
-      byType: TYPES.map((t) => ({ ...t, n: live.filter((p) => p.project_type === t.code).length })),
+      total: inScope.length,
+      byType: TYPES.map((t) => ({ ...t, n: inScope.filter((p) => p.project_type === t.code).length })),
     };
-  }, [projects]);
+  }, [projects, filters.archived]);
 
-  const stale = useMemo(() => stalenessCounts(projects, now()), [projects]);
-
-  /* Applying clears every other filter, so the number on the banner is
-     exactly the number of rows you land on — a banner that says "3" and
-     shows 1 because a type filter was still set is worse than no banner.
-
-     Clicking the same banner again takes the filter back off. Clicking
-     the other one switches to it. */
-  const toggleStaleFilter = (kind) => {
-    const next = nextStaleFilter(filters.stale, kind);
-    setFilters(next === "all" ? { ...filters, stale: "all" } : { ...EMPTY_FILTERS, stale: next });
+  /* A tile is a filter. Clicking "Research" narrows the table to research
+     projects; clicking it again clears it, because the way out should be
+     the control you came in through. "Active" is the all-types tile. */
+  const toggleTypeTile = (code) => {
+    setFilter({ type: code === "all" || filters.type === code ? "all" : code });
     setPage(1);
+  };
+
+  /* From the roster: show me this person's projects. Clears everything
+     else so the count in the roster equals the rows you land on. */
+  const showProjectsFor = (personId, archived) => {
+    setFilters({ ...EMPTY_FILTERS, author: personId, archived });
+    setSort(null);
+    setPage(1);
+    setRosterOpen(false);
   };
 
   const exportCsv = () => downloadCsv(projects, people);
@@ -377,8 +504,9 @@ export default function ProjectTracker() {
         className="px-4 py-1.5 text-center text-xs"
         style={{ background: brand.warnBg, color: brand.warnText, borderBottom: `1px solid ${brand.warnBorder}` }}
       >
-        Design prototype — sample data only. Nothing is saved, and no real patient or
-        project information appears here.
+        <strong>Design prototype.</strong> The staff names are real; every project,
+        status and authorship shown is invented for design purposes and belongs to
+        nobody listed. Nothing is saved, and no patient information appears here.
       </div>
 
       <header style={{ background: brand.navy }}>
@@ -403,36 +531,27 @@ export default function ProjectTracker() {
 
       <main className="max-w-6xl mx-auto px-4 py-5">
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-5">
-          {[{ k: "Active", v: counts.total }, ...counts.byType.map((t) => ({ k: t.label, v: t.n }))].map((c) => (
-            <div key={c.k} className="rounded-lg px-3 py-2.5" style={{ background: brand.surface, border: `1px solid ${brand.border}` }}>
-              <div className="text-xl font-semibold tabular-nums" style={{ color: brand.navy }}>{c.v}</div>
-              <div className="text-xs" style={{ color: brand.slate }}>{c.k}</div>
-            </div>
-          ))}
+          {[
+            { code: "all", k: filters.archived ? "Archived" : "Active", v: counts.total },
+            ...counts.byType.map((t) => ({ code: t.code, k: t.label, v: t.n })),
+          ].map((c) => {
+            const selected = c.code === "all" ? filters.type === "all" : filters.type === c.code;
+            return (
+              <button
+                key={c.code}
+                onClick={() => toggleTypeTile(c.code)}
+                aria-pressed={selected}
+                className="text-left rounded-lg px-3 py-2.5 transition-colors hover:brightness-[0.98]"
+                style={selected
+                  ? { background: "#E8EDF4", border: `1px solid ${brand.navy}` }
+                  : { background: brand.surface, border: `1px solid ${brand.border}` }}
+              >
+                <div className="text-xl font-semibold tabular-nums" style={{ color: brand.navy }}>{c.v}</div>
+                <div className="text-xs" style={{ color: brand.slate }}>{c.k}</div>
+              </button>
+            );
+          })}
         </div>
-
-        {!filters.archived && stale.ancient > 0 && !dismissed.ancient && (
-          <StalenessBanner
-            tone="danger"
-            count={stale.ancient}
-            noun="a year"
-            dismissLabel="Dismiss the over-a-year notice"
-            active={filters.stale === "ancient"}
-            onToggle={() => toggleStaleFilter("ancient")}
-            onDismiss={() => setDismissed((d) => ({ ...d, ancient: true }))}
-          />
-        )}
-        {!filters.archived && stale.stale > 0 && !dismissed.stale && (
-          <StalenessBanner
-            tone="warn"
-            count={stale.stale}
-            noun="three months"
-            dismissLabel="Dismiss the three-month notice"
-            active={filters.stale === "stale"}
-            onToggle={() => toggleStaleFilter("stale")}
-            onDismiss={() => setDismissed((d) => ({ ...d, stale: true }))}
-          />
-        )}
 
         <div className="mb-4">
           <QuickCapture people={people} onCreate={createProject} onAddPerson={addPerson} now={now} />
@@ -468,14 +587,11 @@ export default function ProjectTracker() {
               <option value="all">All years</option>
               {years.map((y) => <option key={y} value={String(y)}>{ayLabel(y)}</option>)}
             </select>
-            <select value={filters.stale} onChange={(e) => setFilter({ stale: e.target.value })} className="rounded-md px-2.5 py-1.5 text-xs" style={selectStyle} aria-label="Filter by how long since the last update">
-              <option value="all">Any age</option>
-              <option value="stale">Untouched 3+ months</option>
-              <option value="ancient">Untouched 1+ year</option>
-            </select>
 
             <button
               onClick={() => setFilter({ archived: !filters.archived })}
+              aria-pressed={filters.archived}
+              aria-label="Show archived projects"
               className="rounded-md px-2.5 py-1.5 text-xs inline-flex items-center gap-1.5"
               style={filters.archived ? { background: brand.navy, color: "#fff" } : selectStyle}
             >
@@ -625,9 +741,10 @@ export default function ProjectTracker() {
         )}
 
         <p className="text-xs mt-6 leading-relaxed" style={{ color: brand.slate }}>
-          Prototype. Data lives in memory only and resets on reload. Contains no protected health
-          information: case reports carry a system-generated case ID, and the mapping to a patient
-          stays in the EMR.
+          Prototype. Data lives in memory only and resets on reload. The roster is the real
+          department; the projects attached to it are invented and are not anybody's actual
+          scholarly work. Contains no protected health information: case reports carry a
+          system-generated case number, and the mapping to a patient stays in the EMR.
         </p>
       </main>
 
@@ -650,6 +767,7 @@ export default function ProjectTracker() {
           projects={projects}
           onSavePerson={savePerson}
           onAddPerson={addPerson}
+          onShowProjects={showProjectsFor}
           onClose={() => setRosterOpen(false)}
           now={now()}
         />

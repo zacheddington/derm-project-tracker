@@ -7,6 +7,8 @@ import {
   isPersonActive,
   activePeople,
   filterRoster,
+  projectLoad,
+  pluralProjects,
   renamePerson,
   updatePerson,
   personSubtitle,
@@ -120,6 +122,40 @@ describe("the roster list", () => {
 
   it("returns nothing rather than everything when nothing matches", () => {
     expect(names({ query: "zzzz" })).toEqual([]);
+  });
+});
+
+describe("how much someone is carrying", () => {
+  const projects = [
+    { id: "x1", authors: ["p1", "p2"], archived_at: null },
+    { id: "x2", authors: ["p1"], archived_at: null },
+    { id: "x3", authors: ["p1"], archived_at: "2026-01-01T00:00:00Z" },
+    { id: "x4", authors: ["p2"], archived_at: "2026-02-01T00:00:00Z" },
+  ];
+
+  it("splits active from archived", () => {
+    expect(projectLoad("p1", projects)).toEqual({ active: 2, archived: 1 });
+    expect(projectLoad("p2", projects)).toEqual({ active: 1, archived: 1 });
+  });
+
+  it("returns zeros for someone with nothing, rather than nothing at all", () => {
+    // "0 active projects" is the single most useful thing the roster can
+    // say — it is how you find who needs work. Omitting it hides them.
+    expect(projectLoad("p99", projects)).toEqual({ active: 0, archived: 0 });
+  });
+
+  it("counts a person once per project, not once per co-author", () => {
+    expect(projectLoad("p1", projects).active).toBe(2);
+  });
+
+  it("copes with a project that has no authors array", () => {
+    expect(projectLoad("p1", [{ id: "x" }])).toEqual({ active: 0, archived: 0 });
+  });
+
+  it("pluralises only where English does", () => {
+    expect(pluralProjects(0)).toBe("0 projects");
+    expect(pluralProjects(1)).toBe("1 project");
+    expect(pluralProjects(2)).toBe("2 projects");
   });
 });
 
