@@ -303,39 +303,39 @@ end $t$;
 -- Privilege escalation attempts. Tomi is signed in and is a plain member.
 do $t$ begin
   perform denied(
-    $update people set permission_level = 'admin' where email = 'tokafor@umc.edu'$,
+    $$update people set permission_level = 'admin' where email = 'tokafor@umc.edu'$$,
     'a member cannot promote themselves to admin', null,
-    $exists (select 1 from people where email = 'tokafor@umc.edu' and permission_level <> 'admin')$);
+    $$exists (select 1 from people where email = 'tokafor@umc.edu' and permission_level <> 'admin')$$);
   perform ok((select permission_level from people where email = 'tokafor@umc.edu') = 'member',
              'the blocked promotion did not take effect');
 
   perform denied(
-    $update people set display_name = 'Renamed' where email = 'rleblanc@umc.edu'$,
+    $$update people set display_name = 'Renamed' where email = 'rleblanc@umc.edu'$$,
     'a member cannot edit another person''s roster entry', null,
-    $exists (select 1 from people where email = 'rleblanc@umc.edu' and display_name <> 'Renamed')$);
+    $$exists (select 1 from people where email = 'rleblanc@umc.edu' and display_name <> 'Renamed')$$);
   perform ok((select display_name from people where email = 'rleblanc@umc.edu') = 'Rae LeBlanc',
              'the blocked rename did not take effect');
 
   -- Roster facts are an admin's to set, even on your own row. Each of
   -- these is a self-edit, which people_update_self otherwise permits.
   perform denied(
-    $update people set staff_position = 'attending' where email = 'tokafor@umc.edu'$,
+    $$update people set staff_position = 'attending' where email = 'tokafor@umc.edu'$$,
     'a member cannot change their own staff position', null,
-    $exists (select 1 from people where email = 'tokafor@umc.edu' and staff_position <> 'attending')$);
+    $$exists (select 1 from people where email = 'tokafor@umc.edu' and staff_position <> 'attending')$$);
   perform ok((select staff_position from people where email = 'tokafor@umc.edu') = 'resident',
              'the blocked position change did not take effect');
 
   perform denied(
-    $update people set employment_end_date = current_date - 1 where email = 'tokafor@umc.edu'$,
+    $$update people set employment_end_date = current_date - 1 where email = 'tokafor@umc.edu'$$,
     'a member cannot set their own employment end date', null,
-    $exists (select 1 from people where email = 'tokafor@umc.edu' and employment_end_date is null)$);
+    $$exists (select 1 from people where email = 'tokafor@umc.edu' and employment_end_date is null)$$);
   perform ok((select employment_end_date from people where email = 'tokafor@umc.edu') is null,
              'the blocked end date did not take effect');
 
   perform denied(
-    $update people set email = 'someone.else@umc.edu' where email = 'tokafor@umc.edu'$,
+    $$update people set email = 'someone.else@umc.edu' where email = 'tokafor@umc.edu'$$,
     'a member cannot change the address their sign-in matches on', null,
-    $exists (select 1 from people where email = 'tokafor@umc.edu')$);
+    $$exists (select 1 from people where email = 'tokafor@umc.edu')$$);
   perform ok((select count(*) from people where email = 'tokafor@umc.edu') = 1,
              'the blocked email change did not take effect');
 
