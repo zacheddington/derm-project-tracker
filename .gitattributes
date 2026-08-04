@@ -1,0 +1,11 @@
+# Normalize line endings in the repository regardless of who commits.
+* text=auto
+
+# These files are executed on Linux — GitHub Actions runners, and Postgres
+# reading .sql through psql. A CRLF here is not cosmetic: bash fails on a
+# `#!/usr/bin/env bash\r` shebang with "bad interpreter", which is a
+# confusing way to find out someone committed from Windows.
+*.sh   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.sql  text eol=lf

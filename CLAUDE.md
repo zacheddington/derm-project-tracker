@@ -26,6 +26,8 @@ this application.
 - `test/01_tests.sql` — 45 behavioral assertions. `test/00_supabase_stub.sql` is a local
   stand-in for Supabase's `auth` schema and roles; **never apply it to a real project.**
 - `prototype/` — Vite + React UI prototype, browser-only, mock data, no backend.
+- `scripts/preflight.sh` — the pre-push gate. `.github/workflows/ci.yml` runs the same
+  script with `--require-db` on every push and PR.
 - `.github/workflows/deploy-pages.yml` — publishes the prototype to GitHub Pages.
 
 The Next.js application does not exist yet. That is the next block of work.
@@ -33,12 +35,18 @@ The Next.js application does not exist yet. That is the next block of work.
 ## Commands
 
 ```bash
+./scripts/preflight.sh                         # must pass before pushing anything
 cd prototype && npm install && npm run dev     # prototype, local
-cd prototype && npm run build                  # must pass before committing prototype changes
 ```
 
+`preflight.sh` checks, in order: no secrets or dumps tracked; no PHI identifier in live
+migration SQL and `year_seen` still `smallint`; the prototype builds; the database suite
+passes. It skips the database section when it cannot reach Postgres and says so — CI
+runs it with `--require-db`, so a green local run with a skip is a weaker claim.
+
 Database tests need a scratch Postgres 16. Load in order: stub → 0001 → 0002 → 0003 →
-tests. Every assertion prints PASS or aborts the run.
+tests. Every assertion prints PASS or aborts the run. Set `DATABASE_URL` and preflight
+does it for you — **destructively**, so never point it at a database holding real data.
 
 ## Conventions that differ from the obvious default
 

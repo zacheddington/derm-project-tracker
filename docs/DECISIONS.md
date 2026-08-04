@@ -102,6 +102,29 @@ server-side option, and Vercel's free tier already covers this scale.
 Pages earns its place as a zero-friction link to send the program coordinator and faculty
 for design feedback before production code exists.
 
+## 2026-08-03 — The no-PHI rule is enforced by a script, not by memory
+
+`scripts/preflight.sh` is the pre-push gate, and `ci.yml` runs the same script on every
+push and pull request against a Postgres 16 service container.
+
+The database suite was already the real check on the security model; what it could not do
+was run automatically. Loading five files into a scratch Postgres by hand is exactly the
+step that gets skipped on a small change, and RLS failures are silent by nature — the
+class of bug least likely to be noticed without a test is also the one this repo already
+got caught by once.
+
+The part worth arguing about is the PHI section. Every prohibition in this repo was
+written as prose, and prose degrades: a contributor who never reads `CLAUDE.md` adds a
+`date_of_service` column and nothing stops them. Grepping live migration SQL for the
+forbidden identifiers turns the one structural rule into something a machine refuses.
+Comments are stripped before the search, because the migrations discuss those identifiers
+at length in order to explain their absence, and a guard that fires on its own
+documentation gets disabled within a week.
+
+It is deliberately a shallow check. It cannot catch PHI arriving as free text in
+`why_unique`, which is what the MRN-shaped-pattern warning in the prototype is for. It
+catches the schema change, which is the irreversible one.
+
 ---
 
 ## Still open

@@ -3,7 +3,7 @@
 A shared registry where residents and faculty record and track scholarly projects.
 Built for the UMMC Department of Dermatology against an internal specification (v0.1).
 
-**Live prototype:** _(fill in once Pages is enabled — `https://<user>.github.io/<repo>/`)_
+**Live prototype:** <https://zacheddington.github.io/derm-project-tracker/>
 
 ---
 
@@ -38,7 +38,10 @@ supabase/migrations/
 test/
   00_supabase_stub.sql  local stand-in for Supabase's auth schema (not deployed)
   01_tests.sql          45 behavioral assertions
+scripts/
+  preflight.sh          everything that must pass before pushing
 .github/workflows/
+  ci.yml                runs preflight, database suite included
   deploy-pages.yml      builds and publishes the prototype
 ```
 
@@ -70,6 +73,36 @@ where email = 'coordinator@umc.edu';
 
 **Tests:** load stub → 0001 → 0002 → 0003 → tests against any scratch Postgres 16.
 Every assertion prints PASS or aborts the run.
+
+---
+
+## Before you push
+
+```bash
+./scripts/preflight.sh
+```
+
+Four sections, in the order a mistake costs the most:
+
+1. **Secrets** — no `.env`, no JWT-shaped string, no database dump tracked by git, and
+   no migration referencing the local-only test stub.
+2. **No PHI** — no forbidden identifier in live migration SQL, and `year_seen` is still
+   a `smallint`. Comments are stripped before the search, because the migrations discuss
+   these identifiers at length in order to explain why they are absent. This is the one
+   rule the whole design rests on, so it is checked mechanically rather than remembered.
+3. **Prototype build** — `npm ci && npm run build`, the same thing Pages publishes.
+4. **Database suite** — stub → 0001 → 0002 → 0003 → 45 assertions.
+
+The database section needs a scratch Postgres 16. Set `DATABASE_URL`, or let it skip
+locally and rely on CI. **It is destructive to whatever database it connects to** — it
+builds the schema from nothing, so never aim it at anything holding real data.
+
+`.github/workflows/ci.yml` runs the identical script with `--require-db` against a
+Postgres 16 service container on every push and pull request, so the database section
+cannot be quietly skipped on the way in. A local run that skipped it has not made the
+promise CI makes.
+
+If the PHI section fails, that is not a lint to silence.
 
 ---
 
