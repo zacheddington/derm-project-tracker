@@ -1,15 +1,16 @@
 import { describe, it, expect } from "vitest";
 import {
-  PERSON_ROLES,
+  STAFF_POSITIONS,
   label,
   academicYearOf,
   ayLabel,
   isPersonActive,
   activePeople,
+  filterRoster,
   renamePerson,
   updatePerson,
   personSubtitle,
-  needsPosition,
+  needsExternalPosition,
   nextCaseId,
   scanForIdentifiers,
 } from "./domain.js";
@@ -27,26 +28,26 @@ describe("academic year", () => {
   });
 });
 
-describe("roles", () => {
-  it("labels the coordinator role 'Research fellow'", () => {
-    expect(label(PERSON_ROLES, "research_coordinator")).toBe("Research fellow");
-  });
-
-  it("keeps the enum CODE unchanged, because renaming it is a migration", () => {
-    expect(PERSON_ROLES.map((r) => r.code)).toContain("research_coordinator");
-    expect(PERSON_ROLES.map((r) => r.code)).not.toContain("research_fellow");
+describe("staff positions", () => {
+  it("uses the same word in the interface and in the database", () => {
+    // These used to disagree: the UI said "Research fellow" while the
+    // Postgres enum said 'research_coordinator', so anyone reading the
+    // table had to be told out of band that they were the same thing.
+    // schema-parity.test.js is what keeps them agreeing from here on.
+    expect(label(STAFF_POSITIONS, "research_fellow")).toBe("Research fellow");
+    expect(STAFF_POSITIONS.map((r) => r.code)).not.toContain("research_coordinator");
   });
 
   it("asks for a free-text position only for external collaborators", () => {
-    expect(needsPosition("external_collaborator")).toBe(true);
-    expect(needsPosition("attending")).toBe(false);
-    expect(needsPosition("resident")).toBe(false);
+    expect(needsExternalPosition("external_collaborator")).toBe(true);
+    expect(needsExternalPosition("attending")).toBe(false);
+    expect(needsExternalPosition("resident")).toBe(false);
   });
 
   it("shows the position instead of the bare role once one is given", () => {
-    const p = { role: "external_collaborator", position: "Pathologist, UMMC" };
+    const p = { staff_position: "external_collaborator", external_position: "Pathologist, UMMC" };
     expect(personSubtitle(p)).toBe("External collaborator · Pathologist, UMMC");
-    expect(personSubtitle({ role: "resident", pgy_level: 3 })).toBe("Resident · PGY-3");
+    expect(personSubtitle({ staff_position: "resident", pgy_level: 3 })).toBe("Resident · PGY-3");
   });
 });
 
@@ -58,30 +59,74 @@ describe("employment end dates", () => {
   });
 
   it("keeps someone who has given notice but has not left yet", () => {
-    expect(isPersonActive({ id: "p1", end_date: "2026-12-31" }, now)).toBe(true);
+    expect(isPersonActive({ id: "p1", employment_end_date: "2026-12-31" }, now)).toBe(true);
   });
 
   it("drops someone whose end date has passed", () => {
-    expect(isPersonActive({ id: "p1", end_date: "2026-06-30" }, now)).toBe(false);
+    expect(isPersonActive({ id: "p1", employment_end_date: "2026-06-30" }, now)).toBe(false);
   });
 
   it("counts the last day of employment as still employed", () => {
-    expect(isPersonActive({ id: "p1", end_date: "2026-08-03" }, now)).toBe(true);
+    expect(isPersonActive({ id: "p1", employment_end_date: "2026-08-03" }, now)).toBe(true);
   });
 
   it("filters pickers down to current staff", () => {
     const people = [
       { id: "p1", display_name: "Rae" },
-      { id: "p2", display_name: "Gone", end_date: "2020-01-01" },
+      { id: "p2", display_name: "Gone", employment_end_date: "2020-01-01" },
     ];
     expect(activePeople(people, now).map((p) => p.id)).toEqual(["p1"]);
   });
 });
 
+describe("the roster list", () => {
+  const now = AT("2026-08-03T12:00:00Z");
+  const people = [
+    { id: "p1", display_name: "Rae LeBlanc", staff_position: "resident" },
+    { id: "p2", display_name: "Tomi Albrecht", staff_position: "resident" },
+    { id: "p3", display_name: "Ellen Voss", staff_position: "resident", employment_end_date: "2025-06-30" },
+    { id: "p4", display_name: "Marcus Hale", staff_position: "resident", employment_end_date: "2024-06-30" },
+    { id: "p5", display_name: "Ben Iwu", staff_position: "external_collaborator", external_position: "Dermatopathologist, Baptist Health" },
+  ];
+  const names = (opts) => filterRoster(people, opts, now).map((p) => p.display_name);
+
+  it("shows only current staff by default", () => {
+    expect(names({})).toEqual(["Rae LeBlanc", "Tomi Albrecht", "Ben Iwu"]);
+  });
+
+  it("shows former staff INSTEAD OF current staff, not mixed in", () => {
+    // Greying leavers out inside one list reads as a rendering quirk and
+    // gives no way to answer "who has left?" by scanning.
+    expect(names({ showFormer: true })).toEqual(["Ellen Voss", "Marcus Hale"]);
+  });
+
+  it("searches by name in both views", () => {
+    expect(names({ query: "tomi" })).toEqual(["Tomi Albrecht"]);
+    expect(names({ showFormer: true, query: "voss" })).toEqual(["Ellen Voss"]);
+  });
+
+  it("does not find a former colleague in the current view", () => {
+    expect(names({ query: "voss" })).toEqual([]);
+  });
+
+  it("searches the external position, for the name you cannot remember", () => {
+    expect(names({ query: "dermatopath" })).toEqual(["Ben Iwu"]);
+    expect(names({ query: "baptist" })).toEqual(["Ben Iwu"]);
+  });
+
+  it("ignores case and surrounding whitespace", () => {
+    expect(names({ query: "  RAE  " })).toEqual(["Rae LeBlanc"]);
+  });
+
+  it("returns nothing rather than everything when nothing matches", () => {
+    expect(names({ query: "zzzz" })).toEqual([]);
+  });
+});
+
 describe("renaming an author", () => {
   const people = [
-    { id: "p2", display_name: "Tomi Okafor", role: "resident" },
-    { id: "p3", display_name: "Priya Raman", role: "attending" },
+    { id: "p2", display_name: "Tomi Okafor", staff_position: "resident" },
+    { id: "p3", display_name: "Priya Raman", staff_position: "attending" },
   ];
 
   it("changes the name and nothing else, so project links survive", () => {
@@ -90,7 +135,7 @@ describe("renaming an author", () => {
     // The id is what projects reference. If this ever changes, every
     // association in the system silently detaches.
     expect(next.map((p) => p.id)).toEqual(["p2", "p3"]);
-    expect(next.find((p) => p.id === "p2").role).toBe("resident");
+    expect(next.find((p) => p.id === "p2").staff_position).toBe("resident");
   });
 
   it("leaves everyone else untouched", () => {
@@ -108,9 +153,9 @@ describe("renaming an author", () => {
   });
 
   it("drops a stale position when the role no longer needs one", () => {
-    const staff = [{ id: "p9", display_name: "Sam", role: "external_collaborator", position: "Pharmacist" }];
-    const next = updatePerson(staff, "p9", { role: "attending" });
-    expect(next[0].position).toBeUndefined();
+    const staff = [{ id: "p9", display_name: "Sam", staff_position: "external_collaborator", external_position: "Pharmacist" }];
+    const next = updatePerson(staff, "p9", { staff_position: "attending" });
+    expect(next[0].external_position).toBeUndefined();
   });
 });
 
@@ -121,9 +166,9 @@ describe("case ID sequence", () => {
 
   it("continues from the highest issued, not the count", () => {
     const projects = [
-      { details: { case_id: "CR-2026-001" } },
-      { details: { case_id: "CR-2026-002" } },
-      { details: { case_id: "CR-2026-003" } },
+      { details: { case_number: "CR-2026-001" } },
+      { details: { case_number: "CR-2026-002" } },
+      { details: { case_number: "CR-2026-003" } },
     ];
     expect(nextCaseId(projects, 2026)).toBe("CR-2026-004");
   });
@@ -131,17 +176,17 @@ describe("case ID sequence", () => {
   it("does not reissue a number after one is archived or retyped", () => {
     // Counting live case reports would return 003 here and collide.
     const projects = [
-      { details: { case_id: "CR-2026-001" } },
-      { details: { case_id: "CR-2026-002" }, archived_at: "2026-05-01T00:00:00Z" },
-      { details: { case_id: "CR-2026-003" } },
+      { details: { case_number: "CR-2026-001" } },
+      { details: { case_number: "CR-2026-002" }, archived_at: "2026-05-01T00:00:00Z" },
+      { details: { case_number: "CR-2026-003" } },
     ];
     expect(nextCaseId(projects, 2026)).toBe("CR-2026-004");
   });
 
   it("restarts each academic year", () => {
     const projects = [
-      { details: { case_id: "CR-2025-014" } },
-      { details: { case_id: "CR-2025-015" } },
+      { details: { case_number: "CR-2025-014" } },
+      { details: { case_number: "CR-2025-015" } },
     ];
     expect(nextCaseId(projects, 2026)).toBe("CR-2026-001");
     expect(nextCaseId(projects, 2025)).toBe("CR-2025-016");

@@ -59,14 +59,14 @@ export function filterProjects(projects, filters = {}, now = Date.now()) {
 
   return projects.filter((p) => {
     if (f.archived !== Boolean(p.archived_at)) return false;
-    if (f.type !== "all" && p.type !== f.type) return false;
+    if (f.type !== "all" && p.project_type !== f.type) return false;
     if (f.status !== "all" && p.work_status !== f.status) return false;
-    if (f.author !== "all" && !p.owners.includes(f.author)) return false;
+    if (f.author !== "all" && !p.authors.includes(f.author)) return false;
     if (f.year !== "all" && String(p.academic_year) !== String(f.year)) return false;
     if (f.stale === "stale" && ageInDays(p, now) <= STALE_DAYS) return false;
     if (f.stale === "ancient" && ageInDays(p, now) <= ANCIENT_DAYS) return false;
     if (t) {
-      const hay = [p.title, p.purpose, p.notes, p.details?.diagnosis, p.details?.case_id]
+      const hay = [p.title, p.purpose, p.notes, p.details?.diagnosis, p.details?.case_number]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -81,13 +81,33 @@ export function filterProjects(projects, filters = {}, now = Date.now()) {
 /* Column identifiers double as table header keys. */
 export const SORT_COLUMNS = ["title", "type", "status", "authors", "venues", "updated"];
 
-/* Tri-state, per the request: first click ascending, second descending,
-   third back to the default. Moving to a different column always starts
-   that column over at ascending rather than inheriting a direction. */
+/* Which way a column sorts on its FIRST click.
+
+   Ascending is right for names and categories: A before B is what anyone
+   expects from a first click. Dates are the exception — nobody opens a
+   project list wanting the oldest thing first, so Updated leads with the
+   most recent. */
+export const FIRST_SORT_DIRECTION = { updated: "desc" };
+const firstDirection = (column) => FIRST_SORT_DIRECTION[column] ?? "asc";
+
+/* Tri-state: first click sorts, second reverses, third returns to the
+   default order. Moving to a different column always starts that column
+   at ITS OWN first direction rather than inheriting the previous one. */
 export function nextSort(current, column) {
-  if (!current || current.column !== column) return { column, dir: "asc" };
-  if (current.dir === "asc") return { column, dir: "desc" };
+  const first = firstDirection(column);
+  if (!current || current.column !== column) return { column, dir: first };
+  if (current.dir === first) return { column, dir: first === "asc" ? "desc" : "asc" };
   return null;
+}
+
+/* Clicking the banner that is already applied takes the filter off again.
+
+   Without this the only way back is to hunt for the age dropdown, which
+   is a strange thing to have to do when the control that got you here is
+   still on screen. Clicking the OTHER banner switches to that one rather
+   than clearing. */
+export function nextStaleFilter(current, kind) {
+  return current === kind ? "all" : kind;
 }
 
 /* One shared collator. `String.prototype.localeCompare` builds a fresh
@@ -100,14 +120,14 @@ function sortValue(project, column, nameOf) {
     case "title":
       return project.title ?? "";
     case "type":
-      return label(TYPES, project.type);
+      return label(TYPES, project.project_type);
     // Work status sorts by its position in the vocabulary, not
     // alphabetically: "Idea → Complete" is the order people think in, and
     // "Abandoned, Analyzing, Collecting…" is meaningless.
     case "status":
       return WORK_STATUSES.findIndex((s) => s.code === project.work_status);
     case "authors":
-      return project.owners.map(nameOf).sort(cmpString)[0] ?? "";
+      return project.authors.map(nameOf).sort(cmpString)[0] ?? "";
     case "venues":
       return project.venues.length;
     case "updated":
@@ -187,13 +207,13 @@ export function validateProject(draft, now = Date.now()) {
   if (!draft.title || !draft.title.trim()) {
     errors.push({ field: "title", message: "A project needs a title." });
   }
-  if (!draft.owners || draft.owners.length === 0) {
+  if (!draft.authors || draft.authors.length === 0) {
     errors.push({
-      field: "owners",
+      field: "authors",
       message: "A project needs at least one author. Add someone before saving.",
     });
   }
-  if (draft.type === "case_report") {
+  if (draft.project_type === "case_report") {
     const y = draft.details?.year_seen;
     if (y !== "" && y != null) {
       const year = Number(y);
@@ -221,12 +241,12 @@ export const maxYearSeen = (now = Date.now()) => new Date(now).getFullYear();
    is never reissued or renumbered — the sequence is a count of case
    reports opened that year, and burning a number would make it lie. */
 export function changeProjectType(project, nextType, allProjects, now = Date.now()) {
-  if (project.type === nextType) return project;
+  if (project.project_type === nextType) return project;
   const details = { ...project.details };
-  if (nextType === "case_report" && !details.case_id) {
+  if (nextType === "case_report" && !details.case_number) {
     const ay = project.academic_year ?? academicYearOf(new Date(now));
-    details.case_id = nextCaseId(allProjects, ay);
+    details.case_number = nextCaseId(allProjects, ay);
     details.patient_consent_obtained = details.patient_consent_obtained ?? "not_yet";
   }
-  return { ...project, type: nextType, details, updated_at: new Date(now).toISOString() };
+  return { ...project, project_type: nextType, details, updated_at: new Date(now).toISOString() };
 }

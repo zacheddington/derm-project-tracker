@@ -42,10 +42,10 @@ export default function QuickCapture({ people, onCreate, onAddPerson, now = Date
   };
 
   const save = () => {
-    const draft = { title, type, owners: authors, details: {} };
+    const draft = { title, type, authors: authors, details: {} };
     const found = validateProject(draft, now());
     if (found.length) { setErrors(found); return; }
-    onCreate({ title: title.trim(), type, owners: authors });
+    onCreate({ title: title.trim(), type, authors: authors });
     reset();
   };
 

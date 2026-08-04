@@ -62,17 +62,17 @@ do $t$ begin
 end $t$;
 
 -- Promote the coordinator to admin (as the service role would, at setup).
-update people set app_role = 'admin', role = 'research_coordinator'
+update people set permission_level = 'admin', staff_position = 'research_fellow'
   where email = 'coordinator@umc.edu';
-update people set role = 'resident', pgy_level = 2 where email = 'rleblanc@umc.edu';
-update people set role = 'resident', pgy_level = 3 where email = 'tokafor@umc.edu';
+update people set staff_position = 'resident', pgy_level = 2 where email = 'rleblanc@umc.edu';
+update people set staff_position = 'resident', pgy_level = 3 where email = 'tokafor@umc.edu';
 
 -- ---------------------------------------------------------------------
 -- Constraints
 -- ---------------------------------------------------------------------
 do $t$ begin
   perform denied(
-    $$insert into people (display_name, role, pgy_level)
+    $$insert into people (display_name, staff_position, pgy_level)
       values ('Dr Attending', 'attending', 4)$$,
     'pgy_level is rejected on non-residents');
 
@@ -80,13 +80,13 @@ do $t$ begin
              'email is stored lowercased');
 end $t$;
 
-insert into people (display_name, role, email)
+insert into people (display_name, staff_position, email)
   values ('Priya Raman', 'attending', 'PRaman@UMC.edu');
 do $t$ begin
   perform ok((select email from people where display_name = 'Priya Raman') = 'praman@umc.edu',
              'mixed-case email is normalized on insert');
   perform denied(
-    $$insert into people (display_name, role, email) values ('Dup', 'attending', 'praman@umc.edu')$$,
+    $$insert into people (display_name, staff_position, email) values ('Dup', 'attending', 'praman@umc.edu')$$,
     'duplicate email is refused', 'unique');
 end $t$;
 
@@ -103,16 +103,16 @@ declare pid uuid; rae uuid;
 begin
   select id into rae from people where email = 'rleblanc@umc.edu';
 
-  insert into projects (title, type, purpose, created_by)
+  insert into projects (title, project_type, purpose, created_by)
     values ('Disseminated gonococcal rash', 'case_report',
             'Atypical presentation worth writing up', rae)
     returning id into pid;
-  insert into project_owners (project_id, person_id) values (pid, rae);
+  insert into project_authors (project_id, person_id) values (pid, rae);
   insert into case_report_details (project_id, diagnosis, why_unique)
     values (pid, 'Disseminated gonococcal infection',
             'Pustular rash preceded joint symptoms by nine days');
 
-  perform ok((select case_id from case_report_details where project_id = pid)
+  perform ok((select case_number from case_report_details where project_id = pid)
              = 'CR-' || academic_year_of(current_date) || '-001',
              'first case report of the academic year gets sequence 001');
   perform ok((select work_status from projects where id = pid) = 'idea',
@@ -128,31 +128,31 @@ do $t$
 declare pid uuid; rae uuid;
 begin
   select id into rae from people where email = 'rleblanc@umc.edu';
-  insert into projects (title, type, created_by)
+  insert into projects (title, project_type, created_by)
     values ('Bullous pemphigoid after gliptin exposure', 'case_report', rae) returning id into pid;
-  insert into project_owners (project_id, person_id) values (pid, rae);
+  insert into project_authors (project_id, person_id) values (pid, rae);
   insert into case_report_details (project_id, diagnosis, why_unique)
     values (pid, 'Bullous pemphigoid', 'Onset 14 months after starting therapy');
-  perform ok((select case_id from case_report_details where project_id = pid)
+  perform ok((select case_number from case_report_details where project_id = pid)
              = 'CR-' || academic_year_of(current_date) || '-002',
              'case IDs increment within an academic year');
 end $t$;
 
--- A project cannot be left with no owner
+-- A project cannot be left with no author
 do $t$
 declare pid uuid; rae uuid;
 begin
   select id into rae from people where email = 'rleblanc@umc.edu';
   begin
-    insert into projects (title, type, created_by)
+    insert into projects (title, project_type, created_by)
       values ('Orphan project', 'review', rae) returning id into pid;
-    insert into project_owners (project_id, person_id) values (pid, rae);
-    delete from project_owners where project_id = pid;
+    insert into project_authors (project_id, person_id) values (pid, rae);
+    delete from project_authors where project_id = pid;
     -- deferred constraint fires at commit; force it now
     set constraints all immediate;
-    raise exception 'FAIL  removing the last owner was allowed';
+    raise exception 'FAIL  removing the last author was allowed';
   exception when check_violation then
-    raise notice 'PASS  a project cannot be left with zero owners';
+    raise notice 'PASS  a project cannot be left with zero authors';
   end;
 end $t$;
 rollback;
@@ -165,9 +165,9 @@ do $t$
 declare pid uuid; rae uuid;
 begin
   select id into rae from people where email = 'rleblanc@umc.edu';
-  insert into projects (title, type, created_by)
+  insert into projects (title, project_type, created_by)
     values ('Clinic no-show reduction', 'qa_qi', rae) returning id into pid;
-  insert into project_owners (project_id, person_id) values (pid, rae);
+  insert into project_authors (project_id, person_id) values (pid, rae);
 
   perform denied(
     format($$insert into case_report_details (project_id, diagnosis, why_unique)
@@ -192,38 +192,45 @@ begin
   perform ok((select count(*) from projects) >= 3,
              'every member can read every project');
 
-  perform denied(
-    format($$update projects set work_status = 'abandoned' where id = %L$$, pid),
-    'a non-owner cannot change someone else''s project');
+  -- Editing is open to any member, not just a project's own authors.
+  -- See projects_update in 0002 and the entry in docs/DECISIONS.md: this
+  -- is a shared departmental record, and it is made safe by the audit log
+  -- rather than by a lock that also blocks legitimate corrections.
+  execute format($$update projects set work_status = 'abandoned' where id = %L$$, pid);
+  perform ok((select work_status from projects where id = pid) = 'abandoned',
+             'a member can edit a project they did not author');
 
-  perform denied(
-    format($$update projects set archived_at = now() where id = %L$$, pid),
-    'a non-owner cannot archive someone else''s project');
+  execute format($$update projects set archived_at = now() where id = %L$$, pid);
+  perform ok((select archived_at from projects where id = pid) is not null,
+             'a member can archive a project they did not author');
 
+  execute format($$insert into project_venues (project_id, venue_type, venue_name)
+                   values (%L, 'poster', 'Added by a non-author')$$, pid);
+  perform ok(exists (select 1 from project_venues where venue_name = 'Added by a non-author'),
+             'a member can add a venue to a project they did not author');
+
+  -- Hard delete stays admin-only. Open editing is survivable because
+  -- every change is recorded and archiving is reversible; a hard delete
+  -- is neither.
   perform denied(
     format($$delete from projects where id = %L$$, pid),
-    'a member cannot hard-delete a project');
-
-  perform denied(
-    format($$insert into project_venues (project_id, venue_type, venue_name)
-             values (%L, 'poster', 'Hijack')$$, pid),
-    'a non-owner cannot add a venue to someone else''s project');
-
-  -- Confirm the blocked writes truly left no trace.
-  perform ok((select work_status from projects where id = pid) = 'idea',
-             'the blocked status change did not take effect');
-  perform ok((select archived_at from projects where id = pid) is null,
-             'the blocked archive did not take effect');
+    'a member still cannot hard-delete a project');
   perform ok(exists (select 1 from projects where id = pid),
              'the blocked delete did not remove the project');
-  perform ok(not exists (select 1 from project_venues where venue_name = 'Hijack'),
-             'the blocked venue was not created');
+
+  -- Undo, so the assertions further down see the state they expect. That
+  -- a non-author can also undo their own edit is the point.
+  execute format($$update projects set work_status = 'idea', archived_at = null where id = %L$$, pid);
+  delete from project_venues where venue_name = 'Added by a non-author';
+  perform ok((select work_status from projects where id = pid) = 'idea'
+               and (select archived_at from projects where id = pid) is null,
+             'a non-author can revert what they changed');
 end $t$;
 
 -- Privilege escalation attempts
 do $t$ begin
   perform denied(
-    $$update people set app_role = 'admin' where email = 'tokafor@umc.edu'$$,
+    $$update people set permission_level = 'admin' where email = 'tokafor@umc.edu'$$,
     'a member cannot promote themselves to admin');
 
   perform denied(
@@ -236,12 +243,12 @@ do $t$ begin
              'a member reads zero audit rows');
 end $t$;
 
--- Inline "add new person" from the owner picker is allowed, but the new
+-- Inline "add new person" from the author picker is allowed, but the new
 -- person is always a plain member regardless of what the client sends.
-insert into people (display_name, role, app_role)
+insert into people (display_name, staff_position, permission_level)
   values ('Sam Whitfield', 'medical_student', 'admin');
 do $t$ begin
-  perform ok((select app_role from people where display_name = 'Sam Whitfield') = 'member',
+  perform ok((select permission_level from people where display_name = 'Sam Whitfield') = 'member',
              'inline-added people are forced to member, not admin');
 end $t$;
 
@@ -256,16 +263,16 @@ begin
 
   update projects set work_status = 'rough_draft' where id = pid;
   perform ok((select work_status from projects where id = pid) = 'rough_draft',
-             'an owner can advance their own project');
+             'an author can advance their own project');
 
   -- statuses move backwards; transitions are never enforced
   update projects set work_status = 'planning' where id = pid;
   perform ok((select work_status from projects where id = pid) = 'planning',
              'work status can move backwards');
 
-  insert into project_owners (project_id, person_id) values (pid, tomi);
-  perform ok((select count(*) from project_owners where project_id = pid) = 2,
-             'an owner can add a co-owner');
+  insert into project_authors (project_id, person_id) values (pid, tomi);
+  perform ok((select count(*) from project_authors where project_id = pid) = 2,
+             'an author can add a co-author');
 
   -- two live venues at once, at different stages
   insert into project_venues (project_id, venue_type, venue_name, submission_status)
@@ -275,7 +282,7 @@ begin
              'a project can hold two venues at different stages at once');
 end $t$;
 
--- Tomi, now a co-owner, can edit
+-- Tomi, now a co-author, can edit
 set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
 do $t$
 declare pid uuid;
@@ -283,7 +290,7 @@ begin
   select id into pid from projects where title = 'Disseminated gonococcal rash';
   update projects set notes = 'Added the immunofluorescence images.' where id = pid;
   perform ok((select notes from projects where id = pid) is not null,
-             'a newly added co-owner can now edit');
+             'a newly added co-author can now edit');
 end $t$;
 
 -- --- Admin powers ------------------------------------------------------
@@ -306,7 +313,7 @@ begin
              'an admin can read the audit log');
 
   perform ok(exists (select 1 from audit_log
-                     where entity_type = 'projects'
+                     where audited_table = 'projects'
                        and changed_fields ? 'work_status'),
              'the audit log records who changed a status');
 
@@ -331,9 +338,9 @@ do $t$ begin
 end $t$;
 
 -- Deactivating a graduate preserves historical attribution.
-update people set is_active = false where email = 'rleblanc@umc.edu';
+update people set employment_end_date = current_date - 1 where email = 'rleblanc@umc.edu';
 do $t$ begin
-  perform ok(exists (select 1 from project_owners po
+  perform ok(exists (select 1 from project_authors po
                      join people pe on pe.id = po.person_id
                      where pe.email = 'rleblanc@umc.edu'),
              'a deactivated graduate stays attached to their projects');
@@ -347,11 +354,11 @@ do $t$
 declare r record;
 begin
   select * into r from project_export where title = 'Disseminated gonococcal rash';
-  perform ok(r.owners like '%Rae LeBlanc%' and r.owners like '%Tomi Okafor%',
-             'the export view lists all owners in one cell');
+  perform ok(r.authors like '%Rae LeBlanc%' and r.authors like '%Tomi Okafor%',
+             'the export view lists all authors in one cell');
   perform ok(r.venue_count = 2 and r.venues like '%JAAD Case Reports%',
              'the export view collapses venues for a spreadsheet cell');
-  perform ok(r.case_id is not null and r.description is null,
+  perform ok(r.case_number is not null and r.description is null,
              'type-specific columns populate only for the matching type');
   perform ok(r.academic_year_label like '20%-20%',
              'academic year renders as a span');
@@ -368,7 +375,7 @@ set role anon;
 do $t$ begin
   perform denied($$select id from projects$$,
                  'anonymous visitors can read nothing', 'permission');
-  perform denied($$insert into projects (title, type, academic_year)
+  perform denied($$insert into projects (title, project_type, academic_year)
                    values ('junk', 'review', 2026)$$,
                  'there are no anonymous writes', 'permission');
 end $t$;

@@ -32,9 +32,9 @@ docs/DECISIONS.md       what was decided and why
 prototype/              Vite + React UI prototype (deployed to Pages)
   src/ProjectTracker.jsx    the app: list, filters, table, pagination
   src/lib/                  pure logic, no React — this is what the tests cover
-    domain.js               vocabularies, people, academic year, case IDs
+    domain.js               vocabularies, people, academic year, case numbers
     projects.js             filter, sort, paginate, staleness, validation
-    *.test.js               65 assertions
+    *.test.js               114 assertions, incl. UI/schema vocabulary parity
   src/components/           panels and primitives
 supabase/migrations/
   0001_schema.sql       tables, constraints, case-ID generation, search, audit log
@@ -56,6 +56,35 @@ app gets built against something stable.
 
 ---
 
+## Reading the schema
+
+Names are meant to be self-explanatory; these are the few that carry departmental
+meaning rather than general meaning.
+
+| name | what it is |
+|---|---|
+| `staff_position` | What someone **is**: resident, fellow, attending, medical student, research fellow, external collaborator. |
+| `permission_level` | What someone **may do** in this application: `member` or `admin`. Independent of `staff_position` — an attending is not automatically an admin. |
+| `employment_end_date` | Last day of employment; `NULL` means still here. People are never deleted, so attribution survives residents graduating. `is_currently_employed(date)` is the single expression of the rule. |
+| `academic_year` | Integer start year of the July 1 – June 30 year. `2026` = AY 2026–2027. |
+| `pgy_level` | Postgraduate year, 1–9. Residents only. Standard US residency term. |
+| `qa_qi` | Quality Assurance / Quality Improvement — a departmental process-improvement project, not a research study. The term the department and ACGME both use, so it is kept verbatim. |
+| `case_number` | Human-readable sequence, `CR-<academic year>-<nnn>`, restarting each year. **Not** a foreign key, and not a patient identifier — the mapping to a patient lives only in the EMR. |
+| `is_terminal` | A status nothing normally moves out of. Used for reporting; never enforced. |
+| `is_selectable` | Whether a status is still offered in pickers. Retiring one must not rewrite the projects already in it. |
+| `external_position` | Free text, external collaborators only: what they do and where. |
+| `other_venue_description` | Free text, `venue_type = 'other'` only. A CHECK stops it surviving a change of kind. |
+
+The interface uses these same words. `prototype/src/lib/schema-parity.test.js` reads
+`0001_schema.sql` and fails the build if any vocabulary drifts.
+
+**Who can edit what:** any member may create, edit and archive **any** project and its
+authorship — this is a shared departmental record, and `audit_log` records every change
+with actor and before/after values. Hard delete, roster permission changes and merges are
+admin-only.
+
+---
+
 ## Running it
 
 **Prototype, locally:**
@@ -72,7 +101,7 @@ and the `anon` / `authenticated` / `service_role` roles itself. Then name your f
 admin:
 
 ```sql
-update people set app_role = 'admin', role = 'research_coordinator'
+update people set permission_level = 'admin', staff_position = 'research_fellow'
 where email = 'coordinator@umc.edu';
 ```
 
@@ -96,8 +125,10 @@ Five sections, in the order a mistake costs the most:
    these identifiers at length in order to explain why they are absent. This is the one
    rule the whole design rests on, so it is checked mechanically rather than remembered.
 3. **Prototype build** — `npm ci && npm run build`, the same thing Pages publishes.
-4. **Prototype tests** — 65 assertions over `prototype/src/lib`.
-5. **Database suite** — stub → 0001 → 0002 → 0003 → 53 assertions.
+4. **Prototype tests** — 114 assertions over `prototype/src/lib`, including a parity
+   check that reads `0001_schema.sql` and fails if any vocabulary has drifted from the
+   interface.
+5. **Database suite** — stub → 0001 → 0002 → 0003 → behavioural assertions.
 
 Add to the tests whenever you change behaviour. The list logic lives in
 `prototype/src/lib` as pure functions specifically so a scenario can be written for it

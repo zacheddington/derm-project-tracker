@@ -79,12 +79,23 @@ does it for you — **destructively**, so never point it at a database holding r
   allowed on purpose: you have to be able to take the wrong name off before adding the
   right one. `validateProject` is the gate, and it raises a dialog rather than silently
   disabling Save.
-- **The prototype has no signed-in user.** Everyone can edit everything. Authorship is a
-  property of the project, not of whoever is typing, and the schema's audit trail is what
-  makes that safe. Do not reintroduce an owner-only read-only mode in the prototype.
-- **`research_coordinator` is the enum code; "Research fellow" is only its label.**
-  Renaming the enum value is a migration, so the UI label and the DB code differ on
-  purpose. Do not "fix" one to match the other without doing both.
+- **Any member may edit any project — in the prototype and in RLS.** Authorship is a
+  property of the project, not a lock on it. `audit_log` is what makes this safe, so do
+  not reintroduce an author-only edit gate on either side. Hard delete stays admin-only,
+  because that is the one change the audit log cannot undo.
+- **Roster edits are still self-or-admin in RLS** (`people_update_self`). The prototype
+  has no sign-in at all, so it cannot model this; do not read the prototype's open roster
+  as a decision to loosen the policy.
+- **The UI and the database use the same words, and a test enforces it.**
+  `prototype/src/lib/schema-parity.test.js` reads `0001_schema.sql` and asserts that every
+  enum and lookup vocabulary matches `domain.js` exactly, in the same order. Adding a
+  status or a project type to one and not the other fails the build. Nothing is deployed
+  yet, so a rename is still a free edit to `0001` rather than a migration — that stops
+  being true the moment there are rows.
+- **Column names say what they hold.** `staff_position` (what someone is) is separate from
+  `permission_level` (what they may do); `case_number` is a human-readable sequence, not a
+  foreign key; `employment_end_date` replaced an ambiguous `is_active`. If a name needs a
+  sentence of explanation to a DBA, it is the wrong name.
 - **Sort keys are computed once per row, never inside a comparator.** A comparator runs
   O(n log n) times; the authors key maps ids to names and sorts them. Doing it per
   comparison measured 51ms at 1,000 rows against 0.9ms per row-wise.

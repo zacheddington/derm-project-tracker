@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Plus, X, Check } from "lucide-react";
 import {
-  brand, PERSON_ROLES, activePeople, personSubtitle, needsPosition,
+  brand, STAFF_POSITIONS, activePeople, personSubtitle, needsExternalPosition,
 } from "../lib/domain.js";
 import { Button, Select, TextInput } from "./primitives.jsx";
 
@@ -19,8 +19,8 @@ export default function AuthorPicker({ people, selected, onChange, onAddPerson, 
   const [q, setQ] = useState("");
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newRole, setNewRole] = useState("resident");
-  const [newPosition, setNewPosition] = useState("");
+  const [newStaffPosition, setNewStaffPosition] = useState("resident");
+  const [newExternalPosition, setNewExternalPosition] = useState("");
 
   const matches = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -33,9 +33,9 @@ export default function AuthorPicker({ people, selected, onChange, onAddPerson, 
   const commitNew = () => {
     const name = newName.trim();
     if (!name) return;
-    const person = onAddPerson(name, newRole, newPosition.trim());
+    const person = onAddPerson(name, newStaffPosition, newExternalPosition.trim());
     onChange([...selected, person.id]);
-    setNewName(""); setNewPosition(""); setAdding(false); setQ("");
+    setNewName(""); setNewExternalPosition(""); setAdding(false); setQ("");
   };
 
   return (
@@ -106,13 +106,13 @@ export default function AuthorPicker({ people, selected, onChange, onAddPerson, 
         <div className="rounded-md p-3" style={{ border: `1px solid ${brand.border}`, background: brand.bg }}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
             <TextInput value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Full name" aria-label="Full name" />
-            <Select options={PERSON_ROLES} value={newRole} onChange={(e) => setNewRole(e.target.value)} aria-label="Role" />
+            <Select options={STAFF_POSITIONS} value={newStaffPosition} onChange={(e) => setNewStaffPosition(e.target.value)} aria-label="Role" />
           </div>
-          {needsPosition(newRole) && (
+          {needsExternalPosition(newStaffPosition) && (
             <div className="mb-2">
               <TextInput
-                value={newPosition}
-                onChange={(e) => setNewPosition(e.target.value)}
+                value={newExternalPosition}
+                onChange={(e) => setNewExternalPosition(e.target.value)}
                 placeholder="Their position or role — e.g. Pathologist, Baptist Health"
                 aria-label="Position or role"
               />

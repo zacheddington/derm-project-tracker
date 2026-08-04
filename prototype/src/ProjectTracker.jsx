@@ -6,12 +6,12 @@ import {
 
 import {
   brand, WORK_STATUSES, SUBMISSION_STATUSES, TYPES, IRB_STATUSES, CONSENT,
-  PERSON_ROLES, VENUE_TYPES, label, ayLabel, academicYearOf, activePeople,
+  STAFF_POSITIONS, VENUE_TYPES, label, ayLabel, academicYearOf, activePeople,
   updatePerson, nextCaseId,
 } from "./lib/domain.js";
 import {
   EMPTY_FILTERS, PAGE_SIZE, filterProjects, sortProjects, nextSort, paginate,
-  stalenessCounts, stalenessLabel,
+  stalenessCounts, stalenessLabel, nextStaleFilter,
 } from "./lib/projects.js";
 import { Badge } from "./components/primitives.jsx";
 import { inputStyle } from "./components/primitives.jsx";
@@ -41,16 +41,16 @@ const CURRENT_AY = academicYearOf(new Date());
 const daysAgo = (n) => new Date(Date.now() - n * 864e5).toISOString();
 
 const seedPeople = [
-  { id: "p1", display_name: "Rae LeBlanc", role: "resident", pgy_level: 2, end_date: null },
-  { id: "p2", display_name: "Tomi Okafor", role: "resident", pgy_level: 3, end_date: null },
-  { id: "p3", display_name: "Priya Raman", role: "attending", end_date: null },
-  { id: "p4", display_name: "Dana Reyes", role: "research_coordinator", end_date: null },
-  { id: "p5", display_name: "Marcus Hale", role: "resident", pgy_level: 4, end_date: null },
-  { id: "p6", display_name: "Ellen Voss", role: "resident", pgy_level: 1, end_date: "2025-06-30" },
-  { id: "p7", display_name: "Sofia Marchetti", role: "attending", end_date: null },
+  { id: "p1", display_name: "Rae LeBlanc", staff_position: "resident", pgy_level: 2, employment_end_date: null },
+  { id: "p2", display_name: "Tomi Okafor", staff_position: "resident", pgy_level: 3, employment_end_date: null },
+  { id: "p3", display_name: "Priya Raman", staff_position: "attending", employment_end_date: null },
+  { id: "p4", display_name: "Dana Reyes", staff_position: "research_fellow", employment_end_date: null },
+  { id: "p5", display_name: "Marcus Hale", staff_position: "resident", pgy_level: 4, employment_end_date: null },
+  { id: "p6", display_name: "Ellen Voss", staff_position: "resident", pgy_level: 1, employment_end_date: "2025-06-30" },
+  { id: "p7", display_name: "Sofia Marchetti", staff_position: "attending", employment_end_date: null },
   {
-    id: "p8", display_name: "Ben Iwu", role: "external_collaborator",
-    position: "Dermatopathologist, Baptist Health", end_date: null,
+    id: "p8", display_name: "Ben Iwu", staff_position: "external_collaborator",
+    external_position: "Dermatopathologist, Baptist Health", employment_end_date: null,
   },
 ];
 
@@ -58,20 +58,20 @@ const seedProjects = [
   {
     id: "x1",
     title: "Disseminated gonococcal rash",
-    type: "case_report",
+    project_type: "case_report",
     work_status: "in_edit",
-    owners: ["p1", "p3"],
+    authors: ["p1", "p3"],
     purpose: "Atypical sequence of findings; useful teaching case for the residency.",
     notes:
       "Pustular rash preceded the joint symptoms by nine days, which is backwards from the usual teaching.\n\nImmunofluorescence images are on the shared drive. Priya has the original clinical photos.",
     next_action: "Return revisions to JAAD Case Reports",
-    next_action_due: new Date(Date.now() + 9 * 864e5).toISOString().slice(0, 10),
+    next_action_due_date: new Date(Date.now() + 9 * 864e5).toISOString().slice(0, 10),
     irb_status: "not_applicable",
     academic_year: CURRENT_AY,
     updated_at: daysAgo(3),
     archived_at: null,
     details: {
-      case_id: `CR-${CURRENT_AY}-001`,
+      case_number: `CR-${CURRENT_AY}-001`,
       diagnosis: "Disseminated gonococcal infection",
       why_unique: "Cutaneous findings preceded arthritis by over a week.",
       attending_id: "p3",
@@ -79,20 +79,20 @@ const seedProjects = [
       patient_consent_obtained: "yes",
     },
     venues: [
-      { id: "v1", venue_type: "poster", venue_name: "Mississippi Dermatology Society Annual", venue_type_other: "", submission_status: "accepted", target_date: "", notes: "" },
-      { id: "v2", venue_type: "journal", venue_name: "JAAD Case Reports", venue_type_other: "", submission_status: "revisions_requested", target_date: "", notes: "Reviewer 2 wants a wider differential." },
+      { id: "v1", venue_type: "poster", venue_name: "Mississippi Dermatology Society Annual", other_venue_description: "", submission_status: "accepted", target_date: "", notes: "" },
+      { id: "v2", venue_type: "journal", venue_name: "JAAD Case Reports", other_venue_description: "", submission_status: "revisions_requested", target_date: "", notes: "Reviewer 2 wants a wider differential." },
     ],
   },
   {
     id: "x2",
     title: "Reducing no-shows in resident continuity clinic",
-    type: "qa_qi",
+    project_type: "qa_qi",
     work_status: "collecting_data",
-    owners: ["p2", "p4"],
+    authors: ["p2", "p4"],
     purpose: "No-shows are eating roughly a fifth of resident clinic slots.",
     notes: "Baseline pulled from the scheduling report. Two-touch reminder pilot starts next block.",
     next_action: "Pull month two of reminder data",
-    next_action_due: new Date(Date.now() + 21 * 864e5).toISOString().slice(0, 10),
+    next_action_due_date: new Date(Date.now() + 21 * 864e5).toISOString().slice(0, 10),
     irb_status: "exempt_determination",
     academic_year: CURRENT_AY,
     updated_at: daysAgo(11),
@@ -103,19 +103,19 @@ const seedProjects = [
       measure: "Monthly no-show rate from the scheduling report.",
     },
     venues: [
-      { id: "v3", venue_type: "internal_presentation", venue_name: "Departmental QI Day", venue_type_other: "", submission_status: "not_yet_submitted", target_date: "", notes: "" },
+      { id: "v3", venue_type: "internal_presentation", venue_name: "Departmental QI Day", other_venue_description: "", submission_status: "not_yet_submitted", target_date: "", notes: "" },
     ],
   },
   {
     id: "x3",
     title: "Teledermatology triage accuracy for pigmented lesions",
-    type: "research",
+    project_type: "research",
     work_status: "analyzing",
-    owners: ["p5"],
+    authors: ["p5"],
     purpose: "Establish whether store-and-forward triage is safe for our referral volume.",
     notes: "Retrospective chart review, 18 months of referrals. Stats support from Dana.",
     next_action: "Finish interrater agreement analysis",
-    next_action_due: "",
+    next_action_due_date: "",
     irb_status: "approved",
     academic_year: CURRENT_AY,
     updated_at: daysAgo(31),
@@ -126,19 +126,19 @@ const seedProjects = [
       data_source: "Referral records, 18-month window",
     },
     venues: [
-      { id: "v4", venue_type: "conference_presentation", venue_name: "AAD Annual Meeting", venue_type_other: "", submission_status: "submitted", target_date: "", notes: "" },
+      { id: "v4", venue_type: "conference_presentation", venue_name: "AAD Annual Meeting", other_venue_description: "", submission_status: "submitted", target_date: "", notes: "" },
     ],
   },
   {
     id: "x4",
     title: "JAK inhibitors in adolescent alopecia areata",
-    type: "review",
+    project_type: "review",
     work_status: "idea",
-    owners: ["p1"],
+    authors: ["p1"],
     purpose: "",
     notes: "Mentioned at journal club. Worth checking whether anyone has covered the adolescent population specifically.",
     next_action: "",
-    next_action_due: "",
+    next_action_due_date: "",
     irb_status: "not_applicable",
     academic_year: CURRENT_AY,
     updated_at: daysAgo(96),
@@ -149,19 +149,19 @@ const seedProjects = [
   {
     id: "x5",
     title: "Bullous pemphigoid after gliptin exposure",
-    type: "case_report",
+    project_type: "case_report",
     work_status: "complete",
-    owners: ["p2", "p3"],
+    authors: ["p2", "p3"],
     purpose: "",
     notes: "Published last spring.",
     next_action: "",
-    next_action_due: "",
+    next_action_due_date: "",
     irb_status: "not_applicable",
     academic_year: CURRENT_AY - 1,
     updated_at: daysAgo(210),
     archived_at: null,
     details: {
-      case_id: `CR-${CURRENT_AY - 1}-004`,
+      case_number: `CR-${CURRENT_AY - 1}-004`,
       diagnosis: "Bullous pemphigoid",
       why_unique: "Onset fourteen months after starting therapy.",
       attending_id: "p3",
@@ -169,20 +169,20 @@ const seedProjects = [
       patient_consent_obtained: "yes",
     },
     venues: [
-      { id: "v5", venue_type: "journal", venue_name: "JAAD Case Reports", venue_type_other: "", submission_status: "presented_published", target_date: "", notes: "" },
+      { id: "v5", venue_type: "journal", venue_name: "JAAD Case Reports", other_venue_description: "", submission_status: "presented_published", target_date: "", notes: "" },
     ],
   },
   /* Deliberately ancient, so the red banner has something to point at. */
   {
     id: "x6",
     title: "Nail unit melanoma referral patterns",
-    type: "research",
+    project_type: "research",
     work_status: "on_hold",
-    owners: ["p5", "p8"],
+    authors: ["p5", "p8"],
     purpose: "Started before the fellowship changed hands and never picked back up.",
     notes: "Data pull exists. Nobody has looked at it since.",
     next_action: "",
-    next_action_due: "",
+    next_action_due_date: "",
     irb_status: "approved",
     academic_year: CURRENT_AY - 1,
     updated_at: daysAgo(430),
@@ -194,30 +194,42 @@ const seedProjects = [
 
 /* ------------------------------ the banners ----------------------------- */
 
-function StalenessBanner({ tone, count, noun, dismissLabel, onApply, onDismiss }) {
+function StalenessBanner({ tone, count, noun, dismissLabel, active, onToggle, onDismiss }) {
+  const edge = tone === "danger" ? brand.alertBorder : brand.warnBorder;
   const palette = tone === "danger"
     ? { background: brand.alertBg, border: `1px solid ${brand.alertBorder}`, color: brand.alertText }
     : { background: brand.warnBg, border: `1px solid ${brand.warnBorder}`, color: brand.warnText };
 
   return (
-    <div className="rounded-lg mb-3 flex items-stretch overflow-hidden" style={palette}>
+    <div
+      className="rounded-lg mb-3 flex items-stretch overflow-hidden"
+      style={{ ...palette, ...(active ? { boxShadow: `inset 0 0 0 1px ${edge}`, filter: "brightness(0.985)" } : {}) }}
+    >
       <button
-        onClick={onApply}
+        onClick={onToggle}
+        aria-pressed={active}
         className="flex-1 text-left px-3.5 py-2.5 text-sm flex items-center gap-2 hover:brightness-[0.97]"
       >
         {tone === "danger"
-          ? <AlertTriangle size={15} aria-hidden="true" />
-          : <Clock size={15} aria-hidden="true" />}
+          ? <AlertTriangle size={15} className="shrink-0" aria-hidden="true" />
+          : <Clock size={15} className="shrink-0" aria-hidden="true" />}
         <span>
           {count} project{count === 1 ? " has" : "s have"} not been touched in over {noun}.
-          <span className="opacity-70"> Click to see {count === 1 ? "it" : "them"}.</span>
+          {/* The same control both applies and clears the filter. Sending
+              someone to the dropdown to undo what this button did is a
+              small maze with the exit hidden. */}
+          <span className="opacity-70">
+            {active
+              ? " Showing them now — click again to clear."
+              : ` Click to see ${count === 1 ? "it" : "them"}.`}
+          </span>
         </span>
       </button>
       <button
         onClick={onDismiss}
         aria-label={dismissLabel}
         className="px-3 hover:brightness-[0.94]"
-        style={{ borderLeft: `1px solid ${tone === "danger" ? brand.alertBorder : brand.warnBorder}` }}
+        style={{ borderLeft: `1px solid ${edge}` }}
       >
         <X size={15} />
       </button>
@@ -272,7 +284,7 @@ export default function ProjectTracker() {
       id: `p${Date.now()}`,
       display_name: name,
       role,
-      end_date: null,
+      employment_end_date: null,
       ...(position ? { position } : {}),
     };
     setPeople((prev) => [...prev, person]);
@@ -281,12 +293,12 @@ export default function ProjectTracker() {
 
   const savePerson = (id, patch) => setPeople((prev) => updatePerson(prev, id, patch));
 
-  const createProject = ({ title, type, owners }) => {
+  const createProject = ({ title, type, authors }) => {
     const p = {
       id: `x${Date.now()}`,
-      title, type, owners,
+      title, type, authors,
       work_status: "idea",
-      purpose: "", notes: "", next_action: "", next_action_due: "",
+      purpose: "", notes: "", next_action: "", next_action_due_date: "",
       irb_status: type === "case_report" ? "not_applicable" : "not_yet_submitted",
       academic_year: CURRENT_AY,
       updated_at: new Date().toISOString(),
@@ -294,7 +306,7 @@ export default function ProjectTracker() {
       details:
         type === "case_report"
           ? {
-              case_id: nextCaseId(projects, CURRENT_AY),
+              case_number: nextCaseId(projects, CURRENT_AY),
               diagnosis: "", why_unique: "", attending_id: "", year_seen: "",
               patient_consent_obtained: "not_yet",
             }
@@ -331,44 +343,47 @@ export default function ProjectTracker() {
     const live = projects.filter((p) => !p.archived_at);
     return {
       total: live.length,
-      byType: TYPES.map((t) => ({ ...t, n: live.filter((p) => p.type === t.code).length })),
+      byType: TYPES.map((t) => ({ ...t, n: live.filter((p) => p.project_type === t.code).length })),
     };
   }, [projects]);
 
   const stale = useMemo(() => stalenessCounts(projects, now()), [projects]);
 
-  /* Clicking a banner clears everything else, so the number on the banner
-     is exactly the number of rows you land on. A banner that says "3" and
-     shows 1 because a type filter was still set is worse than no banner. */
-  const applyStaleFilter = (kind) => {
-    setFilters({ ...EMPTY_FILTERS, stale: kind });
-    setSort(null);
+  /* Applying clears every other filter, so the number on the banner is
+     exactly the number of rows you land on — a banner that says "3" and
+     shows 1 because a type filter was still set is worse than no banner.
+
+     Clicking the same banner again takes the filter back off. Clicking
+     the other one switches to it. */
+  const toggleStaleFilter = (kind) => {
+    const next = nextStaleFilter(filters.stale, kind);
+    setFilters(next === "all" ? { ...filters, stale: "all" } : { ...EMPTY_FILTERS, stale: next });
     setPage(1);
   };
 
   const exportCsv = () => {
     const cols = [
       "title", "type", "work_status", "academic_year", "authors", "resident_authors",
-      "case_id", "diagnosis", "why_unique", "year_seen", "consent", "attending",
+      "case_number", "diagnosis", "why_unique", "year_seen", "consent", "attending",
       "description", "irb_status", "purpose", "venues", "next_action",
-      "next_action_due", "updated_at", "archived",
+      "next_action_due_date", "updated_at", "archived",
     ];
     const esc = (v) => {
       const s = v == null ? "" : String(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const venueLabel = (v) =>
-      v.venue_type === "other" && v.venue_type_other
-        ? `${v.venue_name} [${v.venue_type_other}]`
+      v.venue_type === "other" && v.other_venue_description
+        ? `${v.venue_name} [${v.other_venue_description}]`
         : v.venue_name;
     const rows = projects.map((p) => [
       p.title,
-      label(TYPES, p.type),
+      label(TYPES, p.project_type),
       label(WORK_STATUSES, p.work_status),
       ayLabel(p.academic_year),
-      p.owners.map(nameOf).join("; "),
-      p.owners.filter((o) => people.find((x) => x.id === o)?.role === "resident").map(nameOf).join("; "),
-      p.details?.case_id || "",
+      p.authors.map(nameOf).join("; "),
+      p.authors.filter((o) => people.find((x) => x.id === o)?.staff_position === "resident").map(nameOf).join("; "),
+      p.details?.case_number || "",
       p.details?.diagnosis || "",
       p.details?.why_unique || "",
       p.details?.year_seen || "",
@@ -379,7 +394,7 @@ export default function ProjectTracker() {
       p.purpose,
       p.venues.map((v) => `${venueLabel(v)} (${label(SUBMISSION_STATUSES, v.submission_status)})`).join("; "),
       p.next_action,
-      p.next_action_due,
+      p.next_action_due_date,
       p.updated_at.slice(0, 10),
       p.archived_at ? "yes" : "no",
     ]);
@@ -397,7 +412,7 @@ export default function ProjectTracker() {
   const onSort = (column) => setSort((s) => nextSort(s, column));
 
   const venueSummary = (v) =>
-    v.venue_type === "other" && v.venue_type_other ? `${v.venue_name} (${v.venue_type_other})` : v.venue_name;
+    v.venue_type === "other" && v.other_venue_description ? `${v.venue_name} (${v.other_venue_description})` : v.venue_name;
 
   return (
     <div className="min-h-screen" style={{ background: brand.bg }}>
@@ -445,7 +460,8 @@ export default function ProjectTracker() {
             count={stale.ancient}
             noun="a year"
             dismissLabel="Dismiss the over-a-year notice"
-            onApply={() => applyStaleFilter("ancient")}
+            active={filters.stale === "ancient"}
+            onToggle={() => toggleStaleFilter("ancient")}
             onDismiss={() => setDismissed((d) => ({ ...d, ancient: true }))}
           />
         )}
@@ -455,7 +471,8 @@ export default function ProjectTracker() {
             count={stale.stale}
             noun="three months"
             dismissLabel="Dismiss the three-month notice"
-            onApply={() => applyStaleFilter("stale")}
+            active={filters.stale === "stale"}
+            onToggle={() => toggleStaleFilter("stale")}
             onDismiss={() => setDismissed((d) => ({ ...d, stale: true }))}
           />
         )}
@@ -556,17 +573,17 @@ export default function ProjectTracker() {
                     >
                       <td className="px-4 py-3">
                         <div className="font-medium" style={{ color: brand.navy }}>{p.title}</div>
-                        {p.details?.case_id && (
-                          <div className="text-xs font-mono mt-0.5" style={{ color: brand.slate }}>{p.details.case_id}</div>
+                        {p.details?.case_number && (
+                          <div className="text-xs font-mono mt-0.5" style={{ color: brand.slate }}>{p.details.case_number}</div>
                         )}
                         {p.next_action && (
                           <div className="text-xs mt-0.5" style={{ color: brand.slate }}>Next: {p.next_action}</div>
                         )}
                       </td>
-                      <td className="px-4 py-3"><Badge list={TYPES} code={p.type} small /></td>
+                      <td className="px-4 py-3"><Badge list={TYPES} code={p.project_type} small /></td>
                       <td className="px-4 py-3"><Badge list={WORK_STATUSES} code={p.work_status} small /></td>
                       <td className="px-4 py-3 text-xs" style={{ color: brand.slate }}>
-                        {p.owners.map(nameOf).join(", ")}
+                        {p.authors.map(nameOf).join(", ")}
                       </td>
                       <td className="px-4 py-3">
                         {p.venues.length === 0 ? (
@@ -603,11 +620,11 @@ export default function ProjectTracker() {
                     <ChevronRight size={16} className="shrink-0 mt-0.5" style={{ color: brand.border }} />
                   </div>
                   <div className="flex flex-wrap gap-1.5 mb-2">
-                    <Badge list={TYPES} code={p.type} small />
+                    <Badge list={TYPES} code={p.project_type} small />
                     <Badge list={WORK_STATUSES} code={p.work_status} small />
                   </div>
                   <div className="text-xs" style={{ color: brand.slate }}>
-                    {p.owners.map(nameOf).join(", ")} · updated {stalenessLabel(p, now())}
+                    {p.authors.map(nameOf).join(", ")} · updated {stalenessLabel(p, now())}
                   </div>
                   {p.venues.length > 0 && (
                     <div className="text-xs mt-1.5" style={{ color: brand.slate }}>

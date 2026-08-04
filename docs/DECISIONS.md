@@ -197,6 +197,8 @@ over the whole set, not the visible page.
 
 ## 2026-08-04 — "Research fellow" is a label change, not an enum change
 
+*Superseded the same day — see "The database says what the interface says" below.*
+
 The UI now reads "Research fellow". The Postgres `person_role` enum still says
 `research_coordinator`.
 
@@ -208,6 +210,64 @@ the other and breaking the half they did not look at.
 
 Worth doing properly before the schema is deployed anywhere. It is cheap now and
 expensive once there are rows.
+
+## 2026-08-04 — The database says what the interface says
+
+Supersedes the entry above. Nothing is deployed, so there are no rows to migrate and a
+rename is an edit to `0001` rather than an `ALTER TYPE`. The reason for the compromise
+had expired; keeping it would have meant shipping a schema where a DBA has to be told,
+out of band, that `research_coordinator` and "Research fellow" are the same thing.
+
+Renamed, with the reasoning in each case:
+
+| was | is | why |
+|---|---|---|
+| `person_role` / `people.role` | `staff_position` | Two columns were called some kind of role. One is what you are; the other is what you may do. |
+| `app_role` | `permission_level` | See above. `permission_level = 'admin'` needs no explanation. |
+| `research_coordinator` | `research_fellow` | The department's own word for the job. |
+| `people.is_active` | `employment_end_date` | A boolean cannot answer "who was here when this ran?", and "active" could mean the row or the person. |
+| `project_owners` | `project_authors` | The interface says Author(s). |
+| `case_report_details.case_id` | `case_number` | `case_id` reads as a foreign key to a `cases` table. It is a human-readable sequence. |
+| `case_id_counters.last_seq` | `case_number_counters.last_sequence_number` | Abbreviations cost more than they save. |
+| `projects.type` | `project_type` | `select type from ...` in a join is ambiguous. |
+| `projects.next_action_due` | `next_action_due_date` | Due what? It is a date. |
+| `audit_log.action` | `operation` | `action` collided conceptually with `next_action`. |
+| `audit_log.entity_type` / `entity_id` | `audited_table` / `audited_record_id` | "Entity" is ORM vocabulary. The values are a table name and a primary key. |
+| `audit_log.actor_label` | `actor_display_name` | It is a name, not a label. |
+| `work_statuses.is_active` | `is_selectable` | It controls whether the option is *offered*, not whether rows using it are live. |
+
+Added: `people.external_position`, `project_venues.other_venue_description`, and
+`is_currently_employed(date)` so the employment rule is written once. Both new text
+columns carry a CHECK tying them to the value that makes them meaningful, so a stale
+description cannot survive a change of kind.
+
+Kept deliberately: `qa_qi` and `pgy_level` are the department's and ACGME's own terms.
+Inventing clearer-sounding names for domain jargon makes it worse, not better. They have
+`COMMENT ON` instead.
+
+The guard is `prototype/src/lib/schema-parity.test.js`, which parses `0001_schema.sql`
+and asserts every vocabulary matches the UI's, in the same order. The order matters
+because the table sorts work status by array position; if SQL `sort_order` and the array
+disagree, the list and the reports disagree. Prose could not have prevented the drift
+that caused this entry. A test can.
+
+## 2026-08-04 — RLS now matches the decision that any member can edit
+
+The prototype was changed so anyone can edit any project, but `projects_update` still
+required authorship. That is precisely the kind of gap this round was about: the security
+model and the interface disagreeing about what the product is.
+
+`projects_update`, `project_authors_*` and the child-table policies are now `is_member()`.
+Hard delete stays admin-only — it is the one operation the audit log cannot undo.
+
+`owns_project` became `is_project_author` and is explicitly no longer a gate. It stays
+because the application still wants to say "your projects", and reimplementing that join
+client-side would be worse.
+
+Roster edits were NOT loosened. `people_update_self` still restricts changing someone's
+record to that person or an admin. The prototype has no sign-in, so its open roster is
+the absence of a model rather than a decision — renaming a colleague is a different act
+from correcting a project, and nobody has asked for it to be open.
 
 ## 2026-08-04 — Employment is a date range, not a flag
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { X, Plus, Archive, Check } from "lucide-react";
 import {
   brand, TYPES, WORK_STATUSES, SUBMISSION_STATUSES, IRB_STATUSES, CONSENT,
-  VENUE_TYPES, PERSON_ROLES, label, activePeople,
+  VENUE_TYPES, STAFF_POSITIONS, label, activePeople,
 } from "../lib/domain.js";
 import { validateProject, changeProjectType, maxYearSeen } from "../lib/projects.js";
 import {
@@ -32,7 +32,7 @@ function AttendingPicker({ people, value, onChange, onAddPerson, now }) {
   const [name, setName] = useState("");
 
   const options = useMemo(() => {
-    const attendings = activePeople(people, now).filter((p) => p.role === "attending");
+    const attendings = activePeople(people, now).filter((p) => p.staff_position === "attending");
     const current = value ? people.find((p) => p.id === value) : null;
     const list = current && !attendings.some((a) => a.id === current.id)
       ? [current, ...attendings]
@@ -41,7 +41,7 @@ function AttendingPicker({ people, value, onChange, onAddPerson, now }) {
       { code: "", label: "—" },
       ...list.map((p) => ({
         code: p.id,
-        label: p.role === "attending" ? p.display_name : `${p.display_name} (${label(PERSON_ROLES, p.role)})`,
+        label: p.staff_position === "attending" ? p.display_name : `${p.display_name} (${label(STAFF_POSITIONS, p.staff_position)})`,
       })),
       { code: "__add", label: "+ Add an attending to the roster…" },
     ];
@@ -118,7 +118,7 @@ export default function DetailPanel({
         ...draft.venues,
         {
           id: `v${Date.now()}`, venue_type: "poster", venue_name: "",
-          venue_type_other: "", submission_status: "not_yet_submitted",
+          other_venue_description: "", submission_status: "not_yet_submitted",
           target_date: "", notes: "",
         },
       ],
@@ -154,10 +154,10 @@ export default function DetailPanel({
           <div className="flex justify-between items-start gap-4">
             <div className="min-w-0">
               <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                <Badge list={TYPES} code={draft.type} small />
+                <Badge list={TYPES} code={draft.project_type} small />
                 <Badge list={WORK_STATUSES} code={draft.work_status} small />
-                {draft.details?.case_id && (
-                  <span className="text-xs font-mono" style={{ color: brand.slate }}>{draft.details.case_id}</span>
+                {draft.details?.case_number && (
+                  <span className="text-xs font-mono" style={{ color: brand.slate }}>{draft.details.case_number}</span>
                 )}
                 {draft.archived_at && <span className="text-xs" style={{ color: brand.slate }}>Archived</span>}
               </div>
@@ -201,7 +201,7 @@ export default function DetailPanel({
                       type="button"
                       onClick={() => setType(t.code)}
                       className="rounded-md px-3 py-1.5 text-sm"
-                      style={draft.type === t.code
+                      style={draft.project_type === t.code
                         ? { background: brand.navy, color: "#fff" }
                         : { background: brand.surface, color: brand.slate, border: `1px solid ${brand.border}` }}
                     >
@@ -223,7 +223,7 @@ export default function DetailPanel({
               </div>
 
               <Field label="Author(s)">
-                <AuthorPicker people={people} selected={draft.owners} onChange={(o) => set({ owners: o })}
+                <AuthorPicker people={people} selected={draft.authors} onChange={(o) => set({ authors: o })}
                               onAddPerson={onAddPerson} now={now()} />
               </Field>
 
@@ -237,12 +237,12 @@ export default function DetailPanel({
                   <TextInput value={draft.next_action} onChange={(e) => set({ next_action: e.target.value })} />
                 </Field>
                 <Field label="Due">
-                  <TextInput type="date" value={draft.next_action_due}
-                             onChange={(e) => set({ next_action_due: e.target.value })} />
+                  <TextInput type="date" value={draft.next_action_due_date}
+                             onChange={(e) => set({ next_action_due_date: e.target.value })} />
                 </Field>
               </div>
 
-              {draft.type === "case_report" && (
+              {draft.project_type === "case_report" && (
                 <div className="rounded-lg p-4 mt-2" style={{ background: brand.surface, border: `1px solid ${brand.border}` }}>
                   <h3 className="text-sm font-semibold mb-1" style={{ color: brand.navy }}>Case detail</h3>
                   <p className="text-xs mb-4 leading-relaxed" style={{ color: brand.slate }}>
@@ -284,16 +284,16 @@ export default function DetailPanel({
                 </div>
               )}
 
-              {draft.type !== "case_report" && (
+              {draft.project_type !== "case_report" && (
                 <div className="rounded-lg p-4 mt-2" style={{ background: brand.surface, border: `1px solid ${brand.border}` }}>
                   <h3 className="text-sm font-semibold mb-3" style={{ color: brand.navy }}>
-                    {label(TYPES, draft.type)} detail
+                    {label(TYPES, draft.project_type)} detail
                   </h3>
                   <Field label="Description">
                     <TextArea rows={2} value={draft.details.description || ""}
                               onChange={(e) => setDetail({ description: e.target.value })} />
                   </Field>
-                  {draft.type === "qa_qi" && (
+                  {draft.project_type === "qa_qi" && (
                     <>
                       <Field label="Aim statement">
                         <TextInput value={draft.details.aim_statement || ""}
@@ -305,7 +305,7 @@ export default function DetailPanel({
                       </Field>
                     </>
                   )}
-                  {draft.type === "research" && (
+                  {draft.project_type === "research" && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
                       <Field label="Study design">
                         <Select
@@ -324,7 +324,7 @@ export default function DetailPanel({
                       </Field>
                     </div>
                   )}
-                  {draft.type === "review" && (
+                  {draft.project_type === "review" && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
                       <Field label="Review type">
                         <Select
@@ -385,9 +385,9 @@ export default function DetailPanel({
                   {v.venue_type === "other" && (
                     <Field label="What kind?" hint="Free text — whatever this actually is.">
                       <TextInput
-                        value={v.venue_type_other || ""}
+                        value={v.other_venue_description || ""}
                         placeholder="e.g. Grand rounds at another institution"
-                        onChange={(e) => setVenue(v.id, { venue_type_other: e.target.value })}
+                        onChange={(e) => setVenue(v.id, { other_venue_description: e.target.value })}
                       />
                     </Field>
                   )}

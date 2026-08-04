@@ -2,11 +2,14 @@
 -- Migration 0002 — authorization
 --
 -- Permissions are enforced at the database layer (§9), not hidden in the
--- UI. Two roles only (§3):
---   member — read everything; create projects; edit/archive projects
---            they own; add people to the roster
---   admin  — everything above, plus edit/archive/hard-delete anything,
---            manage the roster, assign roles, read the audit log
+-- UI. Two permission levels only (§3):
+--   member — read everything; create, edit and archive ANY project;
+--            edit authorship; add people to the roster
+--   admin  — everything above, plus hard-delete, manage the roster,
+--            assign permission levels, merge duplicates, read the audit log
+--
+-- Editing is intentionally not limited to a project's own authors. See
+-- the note on projects_update, and docs/DECISIONS.md.
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -54,7 +57,7 @@ security definer
 set search_path = public
 as $$
   select coalesce(
-    (select app_role = 'admin' and is_active
+    (select permission_level = 'admin' and is_currently_employed(employment_end_date)
        from people where auth_user_id = auth.uid()),
     false);
 $$;
@@ -67,11 +70,17 @@ security definer
 set search_path = public
 as $$
   select coalesce(
-    (select is_active from people where auth_user_id = auth.uid()),
+    (select is_currently_employed(employment_end_date) from people where auth_user_id = auth.uid()),
     false);
 $$;
 
-create or replace function owns_project(p_id uuid)
+-- Whether the signed-in person is an author of this project.
+--
+-- NOT a permission gate. Editing is open to any member (see the projects
+-- policies below); this exists so the application can show "your project"
+-- affordances — highlighting, default filters, notifications — without
+-- reimplementing the join client-side.
+create or replace function is_project_author(p_id uuid)
 returns boolean
 language sql
 stable
@@ -80,11 +89,14 @@ set search_path = public
 as $$
   select exists (
     select 1
-    from project_owners po
-    join people pe on pe.id = po.person_id
-    where po.project_id = p_id
+    from project_authors pa
+    join people pe on pe.id = pa.person_id
+    where pa.project_id = p_id
       and pe.auth_user_id = auth.uid());
 $$;
+
+comment on function is_project_author(uuid) is
+  'True when the signed-in person is an author of this project. Informational only — not used to grant or deny access.';
 
 -- ---------------------------------------------------------------------
 -- 3. Linking auth.users to people
@@ -114,11 +126,11 @@ begin
   if existing is not null then
     update people
       set auth_user_id = new.id,
-          is_active    = true,
+          employment_end_date = null,
           updated_at   = now()
       where id = existing;
   else
-    insert into people (auth_user_id, display_name, email, role)
+    insert into people (auth_user_id, display_name, email, staff_position)
     values (
       new.id,
       coalesce(nullif(btrim(new.raw_user_meta_data ->> 'full_name'), ''),
@@ -155,8 +167,8 @@ begin
     return new;
   end if;
 
-  if new.app_role is distinct from old.app_role then
-    raise exception 'Only an admin can change a role.'
+  if new.permission_level is distinct from old.permission_level then
+    raise exception 'Only an admin can change a permission level.'
       using errcode = 'insufficient_privilege';
   end if;
 
@@ -178,7 +190,7 @@ create trigger people_privileged_columns
   before update on people
   for each row execute function guard_people_privileged_columns();
 
--- New roster entries created inline from the owner picker are plain
+-- New roster entries created inline from the author picker are plain
 -- members, whatever the client sends.
 create or replace function default_new_person_privileges()
 returns trigger
@@ -188,7 +200,7 @@ set search_path = public
 as $$
 begin
   if auth.uid() is not null and not is_admin() then
-    new.app_role := 'member';
+    new.permission_level := 'member';
   end if;
   return new;
 end;
@@ -204,7 +216,7 @@ create trigger people_default_privileges
 
 alter table people               enable row level security;
 alter table projects             enable row level security;
-alter table project_owners       enable row level security;
+alter table project_authors       enable row level security;
 alter table project_venues       enable row level security;
 alter table case_report_details  enable row level security;
 alter table qa_qi_details        enable row level security;
@@ -214,7 +226,7 @@ alter table work_statuses        enable row level security;
 alter table submission_statuses  enable row level security;
 alter table audit_log            enable row level security;
 alter table app_settings         enable row level security;
-alter table case_id_counters     enable row level security;
+alter table case_number_counters     enable row level security;
 
 -- --- people -----------------------------------------------------------
 create policy people_read on people
@@ -241,34 +253,42 @@ create policy projects_read on projects
 create policy projects_insert on projects
   for insert to authenticated with check (is_member());
 
--- Owners edit and archive their own; admins edit and archive anything.
+-- Any member edits and archives anything.
+--
+-- This is deliberate, and it is the department's own decision: this is a
+-- shared record of the department's work, and a resident correcting an
+-- attending's typo is the system functioning. An author-only lock stops
+-- the wrong edits by also stopping the right ones, and the usual result
+-- is that corrections never get made at all.
+--
+-- What makes it safe is that nothing is silently lost: audit_log records
+-- every change with the actor and the before/after values, and archiving
+-- is reversible. Hard delete stays admin-only.
 create policy projects_update on projects
   for update to authenticated
-  using (is_member() and (owns_project(id) or is_admin()))
-  with check (is_member() and (owns_project(id) or is_admin()));
+  using (is_member())
+  with check (is_member());
 
 -- Hard delete is admin-only, and the UI must confirm first (§3).
 create policy projects_delete on projects
   for delete to authenticated using (is_admin());
 
--- --- project_owners ---------------------------------------------------
-create policy project_owners_read on project_owners
+-- --- project_authors ---------------------------------------------------
+create policy project_authors_read on project_authors
   for select to authenticated using (is_member());
 
--- An owner can add co-owners. Anyone can claim a project that somehow
--- has none, which also covers the first owner added at creation time.
-create policy project_owners_write on project_owners
+-- Authorship is editable by any member, for the same reason projects are:
+-- the commonest correction is adding the person who was left off.
+create policy project_authors_write on project_authors
   for insert to authenticated
-  with check (
-    is_member() and (
-      is_admin()
-      or owns_project(project_id)
-      or not exists (select 1 from project_owners po where po.project_id = project_owners.project_id)
-    ));
+  with check (is_member());
 
-create policy project_owners_remove on project_owners
+-- Removing the last author is allowed here and refused at COMMIT by the
+-- project_authors_min_one constraint trigger, so authors can be swapped
+-- inside one transaction without a moment where the project has none.
+create policy project_authors_remove on project_authors
   for delete to authenticated
-  using (is_member() and (owns_project(project_id) or is_admin()));
+  using (is_member());
 
 -- --- child tables inherit the parent project's rules ------------------
 do $$
@@ -284,16 +304,16 @@ begin
 
       create policy %1$s_insert on %1$I
         for insert to authenticated
-        with check (is_member() and (owns_project(project_id) or is_admin()));
+        with check (is_member());
 
       create policy %1$s_update on %1$I
         for update to authenticated
-        using (is_member() and (owns_project(project_id) or is_admin()))
-        with check (is_member() and (owns_project(project_id) or is_admin()));
+        using (is_member())
+        with check (is_member());
 
       create policy %1$s_delete on %1$I
         for delete to authenticated
-        using (is_member() and (owns_project(project_id) or is_admin()));
+        using (is_member());
     $f$, t);
   end loop;
 end $$;
@@ -323,8 +343,8 @@ create policy app_settings_read on app_settings
 create policy app_settings_write on app_settings
   for all to authenticated using (is_admin()) with check (is_admin());
 
--- case_id_counters is written only by the SECURITY DEFINER trigger.
-create policy case_id_counters_read on case_id_counters
+-- case_number_counters is written only by the SECURITY DEFINER trigger.
+create policy case_id_counters_read on case_number_counters
   for select to authenticated using (is_admin());
 
 -- ---------------------------------------------------------------------
@@ -334,11 +354,11 @@ create policy case_id_counters_read on case_id_counters
 
 grant usage on schema public to authenticated;
 grant select, insert, update, delete on
-  people, projects, project_owners, project_venues,
+  people, projects, project_authors, project_venues,
   case_report_details, qa_qi_details, research_details, review_details,
   work_statuses, submission_statuses, app_settings
   to authenticated;
-grant select on audit_log, case_id_counters to authenticated;
+grant select on audit_log, case_number_counters to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
 
 -- The anon role gets nothing. There are no anonymous writes (§4).

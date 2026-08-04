@@ -83,24 +83,24 @@ export const CONSENT = [
   { code: "not_applicable", label: "Not applicable" },
 ];
 
-/* The `research_coordinator` CODE is the value in the Postgres
+/* The `research_fellow` CODE is the value in the Postgres
    `person_role` enum, so it stays. Only the label changed to "Research
    fellow" — renaming the enum value is a migration, and this is a UI
    wording change. See the note in README.md. */
-export const PERSON_ROLES = [
+export const STAFF_POSITIONS = [
   { code: "resident", label: "Resident" },
   { code: "fellow", label: "Fellow" },
   { code: "attending", label: "Attending" },
   { code: "medical_student", label: "Medical student" },
-  { code: "research_coordinator", label: "Research fellow" },
+  { code: "research_fellow", label: "Research fellow" },
   { code: "external_collaborator", label: "External collaborator" },
 ];
 
 /* Roles that need a free-text position, because the vocabulary cannot
    usefully enumerate what an outside collaborator does. */
-export const ROLES_NEEDING_POSITION = ["external_collaborator"];
+export const POSITIONS_NEEDING_DESCRIPTION = ["external_collaborator"];
 
-export const needsPosition = (role) => ROLES_NEEDING_POSITION.includes(role);
+export const needsExternalPosition = (role) => POSITIONS_NEEDING_DESCRIPTION.includes(role);
 
 export const label = (list, code) => list.find((x) => x.code === code)?.label ?? code;
 export const toneOf = (list, code) => list.find((x) => x.code === code)?.tone ?? "neutral";
@@ -119,14 +119,33 @@ export const ayLabel = (y) => `${y}–${y + 1}`;
    who has given notice and is still here. */
 export function isPersonActive(person, now = Date.now()) {
   if (!person) return false;
-  if (!person.end_date) return true;
-  const end = Date.parse(`${person.end_date}T23:59:59`);
+  if (!person.employment_end_date) return true;
+  const end = Date.parse(`${person.employment_end_date}T23:59:59`);
   if (Number.isNaN(end)) return true;
   return end >= now;
 }
 
 export function activePeople(people, now = Date.now()) {
   return people.filter((p) => isPersonActive(p, now));
+}
+
+/* The roster list.
+
+   `showFormer` is EXCLUSIVE: it shows former staff INSTEAD OF current
+   staff, not in addition to them. Mixing the two and greying the leavers
+   out reads as a rendering quirk rather than as a meaningful distinction,
+   and there is no way to answer "who has left?" by scanning it.
+
+   The search covers the external position too, so "pathology" finds the
+   outside collaborator whose name you cannot remember. */
+export function filterRoster(people, { showFormer = false, query = "" } = {}, now = Date.now()) {
+  const q = query.trim().toLowerCase();
+  return people
+    .filter((p) => (showFormer ? !isPersonActive(p, now) : isPersonActive(p, now)))
+    .filter((p) =>
+      !q ||
+      p.display_name.toLowerCase().includes(q) ||
+      (p.external_position ?? "").toLowerCase().includes(q));
 }
 
 /* Names change. The link is the id, never the name, so a rename is just
@@ -144,15 +163,15 @@ export function updatePerson(people, id, patch) {
     if (typeof next.display_name === "string") next.display_name = next.display_name.trim();
     // Dropping out of a role that needs a position drops the position too,
     // so a stale "Pharmacist" does not survive a change to Attending.
-    if (!needsPosition(next.role)) delete next.position;
+    if (!needsExternalPosition(next.staff_position)) delete next.external_position;
     return next;
   });
 }
 
 export function personSubtitle(person) {
   if (!person) return "";
-  const role = label(PERSON_ROLES, person.role);
-  if (needsPosition(person.role) && person.position) return `${role} · ${person.position}`;
+  const role = label(STAFF_POSITIONS, person.staff_position);
+  if (needsExternalPosition(person.staff_position) && person.external_position) return `${role} · ${person.external_position}`;
   if (person.pgy_level) return `${role} · PGY-${person.pgy_level}`;
   return role;
 }
@@ -169,7 +188,7 @@ export function personSubtitle(person) {
 export function nextCaseId(projects, ay) {
   const prefix = `CR-${ay}-`;
   const highest = projects.reduce((max, p) => {
-    const id = p?.details?.case_id;
+    const id = p?.details?.case_number;
     if (typeof id !== "string" || !id.startsWith(prefix)) return max;
     const n = parseInt(id.slice(prefix.length), 10);
     return Number.isFinite(n) && n > max ? n : max;

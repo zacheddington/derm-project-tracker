@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { X, Plus, Check, Pencil } from "lucide-react";
+import { X, Plus, Check, Pencil, Search } from "lucide-react";
 import {
-  brand, PERSON_ROLES, label, personSubtitle, needsPosition, isPersonActive,
+  brand, STAFF_POSITIONS, label, personSubtitle, needsExternalPosition, isPersonActive, filterRoster,
 } from "../lib/domain.js";
 import { Button, Field, Select, TextInput } from "./primitives.jsx";
 
@@ -30,28 +30,31 @@ function PersonRow({ person, projectCount, onSave, now }) {
     if (!draft.display_name.trim()) return;
     onSave(person.id, {
       display_name: draft.display_name,
-      role: draft.role,
-      position: draft.position ?? "",
+      staff_position: draft.staff_position,
+      external_position: draft.external_position ?? "",
       pgy_level: draft.pgy_level,
-      end_date: draft.end_date || null,
+      employment_end_date: draft.employment_end_date || null,
     });
     setEditing(false);
   };
 
   const active = isPersonActive(person, now);
 
+  // Rows are never faded. In the Former staff view everyone here has
+  // left, so greying every row communicates nothing and only makes the
+  // panel harder to read. The end date says it instead.
   if (!editing) {
     return (
       <div
         className="flex items-center gap-3 px-3 py-2.5"
-        style={{ borderBottom: `1px solid ${brand.border}`, opacity: active ? 1 : 0.6 }}
+        style={{ borderBottom: `1px solid ${brand.border}` }}
       >
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium truncate" style={{ color: brand.navy }}>
             {person.display_name}
             {!active && (
               <span className="ml-2 text-xs font-normal" style={{ color: brand.slate }}>
-                left {person.end_date}
+                left {person.employment_end_date}
               </span>
             )}
           </div>
@@ -82,17 +85,17 @@ function PersonRow({ person, projectCount, onSave, now }) {
         </Field>
         <Field label="Role">
           <Select
-            options={PERSON_ROLES}
-            value={draft.role}
-            onChange={(e) => setDraft({ ...draft, role: e.target.value })}
+            options={STAFF_POSITIONS}
+            value={draft.staff_position}
+            onChange={(e) => setDraft({ ...draft, staff_position: e.target.value })}
           />
         </Field>
       </div>
-      {needsPosition(draft.role) && (
+      {needsExternalPosition(draft.staff_position) && (
         <Field label="Position" hint="Free text — what they actually do, and where.">
           <TextInput
-            value={draft.position ?? ""}
-            onChange={(e) => setDraft({ ...draft, position: e.target.value })}
+            value={draft.external_position ?? ""}
+            onChange={(e) => setDraft({ ...draft, external_position: e.target.value })}
             placeholder="e.g. Pathologist, Baptist Health"
           />
         </Field>
@@ -103,8 +106,8 @@ function PersonRow({ person, projectCount, onSave, now }) {
       >
         <TextInput
           type="date"
-          value={draft.end_date ?? ""}
-          onChange={(e) => setDraft({ ...draft, end_date: e.target.value })}
+          value={draft.employment_end_date ?? ""}
+          onChange={(e) => setDraft({ ...draft, employment_end_date: e.target.value })}
         />
       </Field>
       <div className="flex gap-2">
@@ -117,19 +120,21 @@ function PersonRow({ person, projectCount, onSave, now }) {
 
 export default function RosterPanel({ people, projects, onSavePerson, onAddPerson, onClose, now = Date.now() }) {
   const [showFormer, setShowFormer] = useState(false);
+  const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newRole, setNewRole] = useState("resident");
-  const [newPosition, setNewPosition] = useState("");
+  const [newStaffPosition, setNewStaffPosition] = useState("resident");
+  const [newExternalPosition, setNewExternalPosition] = useState("");
 
-  const countFor = (id) => projects.filter((p) => p.owners.includes(id)).length;
-  const shown = people.filter((p) => showFormer || isPersonActive(p, now));
+  const countFor = (id) => projects.filter((p) => p.authors.includes(id)).length;
+  const shown = filterRoster(people, { showFormer, query }, now);
+  const formerCount = people.filter((p) => !isPersonActive(p, now)).length;
 
   const commitNew = () => {
     const name = newName.trim();
     if (!name) return;
-    onAddPerson(name, newRole, newPosition.trim());
-    setNewName(""); setNewPosition(""); setAdding(false);
+    onAddPerson(name, newStaffPosition, newExternalPosition.trim());
+    setNewName(""); setNewExternalPosition(""); setAdding(false);
   };
 
   return (
@@ -152,32 +157,66 @@ export default function RosterPanel({ people, projects, onSavePerson, onAddPerso
         </div>
 
         <div className="px-5 py-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Button variant="secondary" onClick={() => setAdding((v) => !v)}>
-              <Plus size={14} /> Add someone
-            </Button>
-            <button
-              onClick={() => setShowFormer((v) => !v)}
-              className="rounded-md px-2.5 py-1.5 text-xs"
-              style={showFormer
-                ? { background: brand.navy, color: "#fff" }
-                : { border: `1px solid ${brand.border}`, color: brand.navy, background: brand.surface }}
-            >
-              Show former staff
-            </button>
+          {/* Current and former are two views of the roster, not one list
+              with some rows faded. "Who has left?" is a question you can
+              answer by reading this; greyed-out rows mixed into the
+              current staff read as a rendering glitch instead. */}
+          <div
+            className="inline-flex rounded-md overflow-hidden mb-3"
+            style={{ border: `1px solid ${brand.border}` }}
+            role="tablist"
+            aria-label="Roster view"
+          >
+            {[
+              { key: false, label: "Current staff" },
+              { key: true, label: `Former staff${formerCount ? ` (${formerCount})` : ""}` },
+            ].map((t) => (
+              <button
+                key={String(t.key)}
+                role="tab"
+                aria-selected={showFormer === t.key}
+                onClick={() => setShowFormer(t.key)}
+                className="px-3 py-1.5 text-xs"
+                style={showFormer === t.key
+                  ? { background: brand.navy, color: "#fff" }
+                  : { background: brand.surface, color: brand.navy }}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
+
+          <div className="relative mb-3">
+            <Search size={14} className="absolute left-3 top-2.5" style={{ color: brand.slate }} aria-hidden="true" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={showFormer ? "Search former staff…" : "Search by name or position…"}
+              aria-label="Search the roster"
+              className="w-full rounded-md pl-9 pr-3 py-2 text-sm outline-none focus:ring-2"
+              style={{ border: `1px solid ${brand.border}`, background: brand.surface, color: brand.navy }}
+            />
+          </div>
+
+          {!showFormer && (
+            <div className="mb-3">
+              <Button variant="secondary" onClick={() => setAdding((v) => !v)}>
+                <Plus size={14} /> Add someone
+              </Button>
+            </div>
+          )}
 
           {adding && (
             <div className="rounded-md p-3 mb-3" style={{ border: `1px solid ${brand.border}`, background: brand.bg }}>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
                 <TextInput value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Full name" aria-label="Full name" />
-                <Select options={PERSON_ROLES} value={newRole} onChange={(e) => setNewRole(e.target.value)} aria-label="Role" />
+                <Select options={STAFF_POSITIONS} value={newStaffPosition} onChange={(e) => setNewStaffPosition(e.target.value)} aria-label="Role" />
               </div>
-              {needsPosition(newRole) && (
+              {needsExternalPosition(newStaffPosition) && (
                 <div className="mb-2">
                   <TextInput
-                    value={newPosition}
-                    onChange={(e) => setNewPosition(e.target.value)}
+                    value={newExternalPosition}
+                    onChange={(e) => setNewExternalPosition(e.target.value)}
                     placeholder="Their position or role — e.g. Pathologist, Baptist Health"
                     aria-label="Position or role"
                   />
@@ -195,13 +234,19 @@ export default function RosterPanel({ people, projects, onSavePerson, onAddPerso
               <PersonRow key={p.id} person={p} projectCount={countFor(p.id)} onSave={onSavePerson} now={now} />
             ))}
             {shown.length === 0 && (
-              <p className="text-sm px-3 py-4" style={{ color: brand.slate }}>Nobody on the roster yet.</p>
+              <p className="text-sm px-3 py-4" style={{ color: brand.slate }}>
+                {query.trim()
+                  ? `Nobody ${showFormer ? "who has left" : "currently here"} matches “${query.trim()}”.`
+                  : showFormer
+                    ? "Nobody has left yet."
+                    : "Nobody on the roster yet."}
+              </p>
             )}
           </div>
 
           <p className="text-xs mt-4 leading-relaxed" style={{ color: brand.slate }}>
             People are never deleted. Historical attribution has to survive residents graduating,
-            so leaving is an end date rather than a removal — {label(PERSON_ROLES, "attending")}s and
+            so leaving is an end date rather than a removal — {label(STAFF_POSITIONS, "attending")}s and
             residents alike keep their name on everything they authored.
           </p>
         </div>

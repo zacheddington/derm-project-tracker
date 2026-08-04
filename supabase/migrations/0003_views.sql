@@ -24,27 +24,31 @@ with (security_invoker = true) as
 select
   p.id,
   p.title,
-  p.type,
+  p.project_type,
   ws.label                                    as work_status,
   p.academic_year,
   p.academic_year || '-' || (p.academic_year + 1) as academic_year_label,
   (select string_agg(pe.display_name, '; ' order by pe.display_name)
-     from project_owners po
-     join people pe on pe.id = po.person_id
-    where po.project_id = p.id)               as owners,
+     from project_authors pa
+     join people pe on pe.id = pa.person_id
+    where pa.project_id = p.id)               as authors,
   (select string_agg(pe.display_name, '; ' order by pe.display_name)
-     from project_owners po
-     join people pe on pe.id = po.person_id
-    where po.project_id = p.id
-      and pe.role = 'resident')               as resident_owners,
+     from project_authors pa
+     join people pe on pe.id = pa.person_id
+    where pa.project_id = p.id
+      and pe.staff_position = 'resident')               as resident_authors,
   p.irb_status,
   p.purpose,
   p.next_action,
-  p.next_action_due,
+  p.next_action_due_date,
 
   -- venues, collapsed for a single spreadsheet cell
   (select string_agg(
-            v.venue_name || ' (' || ss.label || ')',
+            v.venue_name
+              || case when v.other_venue_description is not null
+                      then ' [' || v.other_venue_description || ']'
+                      else '' end
+              || ' (' || ss.label || ')',
             '; ' order by v.created_at)
      from project_venues v
      join submission_statuses ss on ss.code = v.submission_status
@@ -55,7 +59,7 @@ select
                                               as any_presented_or_published,
 
   -- type-specific columns; null for the other three types
-  cr.case_id,
+  cr.case_number,
   cr.diagnosis,
   cr.why_unique,
   cr.year_seen,
@@ -99,14 +103,15 @@ select
   v.id                                        as venue_id,
   p.id                                        as project_id,
   p.title,
-  p.type                                      as project_type,
+  p.project_type,
   p.academic_year,
   p.academic_year || '-' || (p.academic_year + 1) as academic_year_label,
   (select string_agg(pe.display_name, '; ' order by pe.display_name)
-     from project_owners po
-     join people pe on pe.id = po.person_id
-    where po.project_id = p.id)               as owners,
+     from project_authors pa
+     join people pe on pe.id = pa.person_id
+    where pa.project_id = p.id)               as authors,
   v.venue_type,
+  v.other_venue_description,
   v.venue_name,
   ss.label                                    as submission_status,
   ss.is_terminal                              as status_is_final,
@@ -128,7 +133,7 @@ select
   pe.display_name                             as resident,
   pe.pgy_level,
   p.academic_year || '-' || (p.academic_year + 1) as academic_year,
-  p.type                                      as activity_type,
+  p.project_type                                      as activity_type,
   p.title,
   v.venue_type,
   v.venue_name,
@@ -136,11 +141,11 @@ select
   v.target_date,
   p.irb_status
 from projects p
-join project_owners po       on po.project_id = p.id
-join people pe               on pe.id = po.person_id
+join project_authors pa       on pa.project_id = p.id
+join people pe               on pe.id = pa.person_id
 left join project_venues v   on v.project_id = p.id
 left join submission_statuses ss on ss.code = v.submission_status
-where pe.role in ('resident', 'fellow')
+where pe.staff_position in ('resident', 'fellow')
   and p.archived_at is null
 order by pe.display_name, p.academic_year desc, p.title;
 
@@ -151,7 +156,7 @@ order by pe.display_name, p.academic_year desc, p.title;
 create view dashboard_counts
 with (security_invoker = true) as
 select
-  p.type,
+  p.project_type,
   p.work_status,
   ws.label            as work_status_label,
   ws.sort_order,
@@ -161,7 +166,7 @@ select
 from projects p
 join work_statuses ws on ws.code = p.work_status
 where p.archived_at is null
-group by p.type, p.work_status, ws.label, ws.sort_order, p.academic_year;
+group by p.project_type, p.work_status, ws.label, ws.sort_order, p.academic_year;
 
 grant select on project_export, venue_export,
                acgme_scholarly_activity, dashboard_counts

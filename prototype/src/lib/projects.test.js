@@ -5,6 +5,7 @@ import {
   stalenessCounts,
   filterProjects,
   nextSort,
+  nextStaleFilter,
   sortProjects,
   paginate,
   pageCount,
@@ -22,9 +23,9 @@ const daysAgo = (n) => new Date(NOW - n * 864e5).toISOString();
 const project = (over = {}) => ({
   id: "x1",
   title: "A project",
-  type: "research",
+  project_type: "research",
   work_status: "idea",
-  owners: ["p1"],
+  authors: ["p1"],
   purpose: "",
   notes: "",
   details: {},
@@ -88,10 +89,10 @@ describe("staleness", () => {
 
 describe("filtering", () => {
   const projects = [
-    project({ id: "a", title: "Alopecia review", type: "review", work_status: "idea", owners: ["p1"], updated_at: daysAgo(2), academic_year: 2026 }),
-    project({ id: "b", title: "Bullous pemphigoid", type: "case_report", work_status: "complete", owners: ["p2", "p3"], updated_at: daysAgo(120), academic_year: 2025, details: { case_id: "CR-2025-004", diagnosis: "Bullous pemphigoid" } }),
-    project({ id: "c", title: "Teledermatology triage", type: "research", work_status: "analyzing", owners: ["p3"], updated_at: daysAgo(400) }),
-    project({ id: "d", title: "Archived thing", type: "research", owners: ["p1"], archived_at: daysAgo(5) }),
+    project({ id: "a", title: "Alopecia review", project_type: "review", work_status: "idea", authors: ["p1"], updated_at: daysAgo(2), academic_year: 2026 }),
+    project({ id: "b", title: "Bullous pemphigoid", project_type: "case_report", work_status: "complete", authors: ["p2", "p3"], updated_at: daysAgo(120), academic_year: 2025, details: { case_number: "CR-2025-004", diagnosis: "Bullous pemphigoid" } }),
+    project({ id: "c", title: "Teledermatology triage", project_type: "research", work_status: "analyzing", authors: ["p3"], updated_at: daysAgo(400) }),
+    project({ id: "d", title: "Archived thing", project_type: "research", authors: ["p1"], archived_at: daysAgo(5) }),
   ];
   const ids = (f) => filterProjects(projects, f, NOW).map((p) => p.id);
 
@@ -120,6 +121,24 @@ describe("filtering", () => {
     expect(ids({ stale: "ancient" })).toEqual(["c"]);
   });
 
+  it("clears its own filter when the same banner is clicked twice", () => {
+    expect(nextStaleFilter("all", "stale")).toBe("stale");
+    expect(nextStaleFilter("stale", "stale")).toBe("all");
+    expect(nextStaleFilter("ancient", "ancient")).toBe("all");
+  });
+
+  it("switches rather than clearing when the other banner is clicked", () => {
+    expect(nextStaleFilter("stale", "ancient")).toBe("ancient");
+    expect(nextStaleFilter("ancient", "stale")).toBe("stale");
+  });
+
+  it("round-trips: apply then clear returns the full list", () => {
+    const applied = nextStaleFilter("all", "ancient");
+    expect(filterProjects(projects, { stale: applied }, NOW).map((p) => p.id)).toEqual(["c"]);
+    const cleared = nextStaleFilter(applied, "ancient");
+    expect(filterProjects(projects, { stale: cleared }, NOW).map((p) => p.id)).toEqual(["a", "b", "c"]);
+  });
+
   it("makes each banner's count equal the rows it lands you on", () => {
     const counts = stalenessCounts(projects, NOW);
     expect(filterProjects(projects, { stale: "stale" }, NOW)).toHaveLength(counts.stale);
@@ -143,15 +162,32 @@ describe("column sorting", () => {
     expect(s).toBeNull();
   });
 
-  it("starts a different column over at ascending rather than inheriting", () => {
-    const s = nextSort({ column: "title", dir: "desc" }, "updated");
+  it("starts a different column at its own first direction, not the inherited one", () => {
+    expect(nextSort({ column: "title", dir: "desc" }, "venues")).toEqual({ column: "venues", dir: "asc" });
+    expect(nextSort({ column: "venues", dir: "asc" }, "title")).toEqual({ column: "title", dir: "asc" });
+  });
+
+  it("leads with the most recent on Updated, and ascending everywhere else", () => {
+    // Nobody opens a project list wanting the oldest row first.
+    expect(nextSort(null, "updated")).toEqual({ column: "updated", dir: "desc" });
+    for (const col of ["title", "type", "status", "authors", "venues"]) {
+      expect(nextSort(null, col)).toEqual({ column: col, dir: "asc" });
+    }
+  });
+
+  it("cycles Updated as descending, ascending, default", () => {
+    let s = nextSort(null, "updated");
+    expect(s).toEqual({ column: "updated", dir: "desc" });
+    s = nextSort(s, "updated");
     expect(s).toEqual({ column: "updated", dir: "asc" });
+    s = nextSort(s, "updated");
+    expect(s).toBeNull();
   });
 
   const projects = [
-    project({ id: "a", title: "Cherry", type: "review", work_status: "complete", owners: ["p2"], venues: [{ id: "v1" }, { id: "v2" }], updated_at: daysAgo(30) }),
-    project({ id: "b", title: "apple", type: "case_report", work_status: "idea", owners: ["p3"], venues: [], updated_at: daysAgo(1) }),
-    project({ id: "c", title: "Banana", type: "research", work_status: "analyzing", owners: ["p1"], venues: [{ id: "v3" }], updated_at: daysAgo(10) }),
+    project({ id: "a", title: "Cherry", project_type: "review", work_status: "complete", authors: ["p2"], venues: [{ id: "v1" }, { id: "v2" }], updated_at: daysAgo(30) }),
+    project({ id: "b", title: "apple", project_type: "case_report", work_status: "idea", authors: ["p3"], venues: [], updated_at: daysAgo(1) }),
+    project({ id: "c", title: "Banana", project_type: "research", work_status: "analyzing", authors: ["p1"], venues: [{ id: "v3" }], updated_at: daysAgo(10) }),
   ];
   const order = (sort) => sortProjects(projects, sort, nameOf).map((p) => p.id);
 
@@ -195,12 +231,12 @@ describe("column sorting", () => {
     // shape of the fix rather than a wall-clock number, so it cannot go
     // flaky on a slow CI runner.
     const rows = Array.from({ length: 200 }, (_, i) =>
-      project({ id: `p${i}`, title: `Project ${i}`, owners: ["p1", "p2"] })
+      project({ id: `p${i}`, title: `Project ${i}`, authors: ["p1", "p2"] })
     );
     let calls = 0;
     const counting = (id) => { calls += 1; return NAMES[id] ?? id; };
     sortProjects(rows, { column: "authors", dir: "asc" }, counting);
-    // Two owners per row, looked up once each. A per-comparison
+    // Two authors per row, looked up once each. A per-comparison
     // implementation lands in the thousands.
     expect(calls).toBe(400);
   });
@@ -265,8 +301,8 @@ describe("pagination", () => {
 
   it("paginates the FILTERED set, so filters reach rows on later pages", () => {
     const mixed = [
-      ...Array.from({ length: 30 }, (_, i) => project({ id: `r${i}`, type: "research" })),
-      project({ id: "needle", type: "case_report", title: "Needle" }),
+      ...Array.from({ length: 30 }, (_, i) => project({ id: `r${i}`, project_type: "research" })),
+      project({ id: "needle", project_type: "case_report", title: "Needle" }),
     ];
     // The needle is row 31 — off page one entirely.
     const filtered = filterProjects(mixed, { type: "case_report" }, NOW);
@@ -280,9 +316,9 @@ describe("saving requires an author", () => {
   });
 
   it("refuses to save with no authors", () => {
-    const errors = validateProject(project({ owners: [] }), NOW);
+    const errors = validateProject(project({ authors: [] }), NOW);
     expect(errors).toHaveLength(1);
-    expect(errors[0].field).toBe("owners");
+    expect(errors[0].field).toBe("authors");
     expect(errors[0].message).toMatch(/at least one author/i);
   });
 
@@ -291,8 +327,8 @@ describe("saving requires an author", () => {
   });
 
   it("reports both problems at once", () => {
-    const errors = validateProject(project({ title: "", owners: [] }), NOW);
-    expect(errors.map((e) => e.field).sort()).toEqual(["owners", "title"]);
+    const errors = validateProject(project({ title: "", authors: [] }), NOW);
+    expect(errors.map((e) => e.field).sort()).toEqual(["authors", "title"]);
   });
 });
 
@@ -303,61 +339,61 @@ describe("year seen cannot be in the future", () => {
 
   it("rejects a future year", () => {
     const errors = validateProject(
-      project({ type: "case_report", details: { year_seen: 2027 } }), NOW
+      project({ project_type: "case_report", details: { year_seen: 2027 } }), NOW
     );
     expect(errors.map((e) => e.field)).toEqual(["year_seen"]);
     expect(errors[0].message).toMatch(/cannot be in the future/i);
   });
 
   it("accepts the current year and rejects one before 1990", () => {
-    expect(validateProject(project({ type: "case_report", details: { year_seen: 2026 } }), NOW)).toEqual([]);
-    expect(validateProject(project({ type: "case_report", details: { year_seen: 1989 } }), NOW)).toHaveLength(1);
+    expect(validateProject(project({ project_type: "case_report", details: { year_seen: 2026 } }), NOW)).toEqual([]);
+    expect(validateProject(project({ project_type: "case_report", details: { year_seen: 1989 } }), NOW)).toHaveLength(1);
   });
 
   it("treats an empty year as fine, because it is optional", () => {
-    expect(validateProject(project({ type: "case_report", details: { year_seen: "" } }), NOW)).toEqual([]);
-    expect(validateProject(project({ type: "case_report", details: {} }), NOW)).toEqual([]);
+    expect(validateProject(project({ project_type: "case_report", details: { year_seen: "" } }), NOW)).toEqual([]);
+    expect(validateProject(project({ project_type: "case_report", details: {} }), NOW)).toEqual([]);
   });
 
   it("only checks the year on case reports", () => {
-    expect(validateProject(project({ type: "research", details: { year_seen: 2099 } }), NOW)).toEqual([]);
+    expect(validateProject(project({ project_type: "research", details: { year_seen: 2099 } }), NOW)).toEqual([]);
   });
 });
 
 describe("changing a project's type", () => {
-  const existing = [{ details: { case_id: "CR-2026-007" } }];
+  const existing = [{ details: { case_number: "CR-2026-007" } }];
 
   it("issues a case ID when a project becomes a case report", () => {
-    const p = project({ type: "research", details: { description: "Some study" } });
+    const p = project({ project_type: "research", details: { description: "Some study" } });
     const next = changeProjectType(p, "case_report", existing, NOW);
-    expect(next.type).toBe("case_report");
-    expect(next.details.case_id).toBe("CR-2026-008");
+    expect(next.project_type).toBe("case_report");
+    expect(next.details.case_number).toBe("CR-2026-008");
   });
 
   it("keeps the detail already typed, so a mis-set type is not a rewrite", () => {
-    const p = project({ type: "research", details: { description: "Some study" } });
+    const p = project({ project_type: "research", details: { description: "Some study" } });
     const next = changeProjectType(p, "case_report", existing, NOW);
     expect(next.details.description).toBe("Some study");
   });
 
   it("never reissues a case ID on the way back", () => {
-    const p = project({ type: "case_report", details: { case_id: "CR-2026-003", diagnosis: "BP" } });
+    const p = project({ project_type: "case_report", details: { case_number: "CR-2026-003", diagnosis: "BP" } });
     const away = changeProjectType(p, "research", existing, NOW);
-    expect(away.details.case_id).toBe("CR-2026-003");
+    expect(away.details.case_number).toBe("CR-2026-003");
     const back = changeProjectType(away, "case_report", existing, NOW);
     // Burning a second number would make "how many case reports this
     // year" overcount.
-    expect(back.details.case_id).toBe("CR-2026-003");
+    expect(back.details.case_number).toBe("CR-2026-003");
     expect(back.details.diagnosis).toBe("BP");
   });
 
   it("is a no-op when the type has not changed", () => {
-    const p = project({ type: "research" });
+    const p = project({ project_type: "research" });
     expect(changeProjectType(p, "research", existing, NOW)).toBe(p);
   });
 
   it("touches updated_at, because a retype is an edit", () => {
-    const p = project({ type: "research", updated_at: daysAgo(50) });
+    const p = project({ project_type: "research", updated_at: daysAgo(50) });
     expect(changeProjectType(p, "review", existing, NOW).updated_at)
       .toBe(new Date(NOW).toISOString());
   });
