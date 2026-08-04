@@ -14,8 +14,11 @@ import AuthorPicker from "./AuthorPicker.jsx";
    projects on behalf of residents, and a wrong author that arrives
    silently is worse than no author at all, because nobody notices it.
 
-   The elapsed timer is an instrument for the thirty-second criterion,
-   not a feature for the person typing.
+   There is deliberately no elapsed-time counter. One existed to measure
+   the thirty-second target while the design was being judged; it was an
+   instrument, not information anyone could act on, and putting a running
+   stopwatch on someone recording a case report is the wrong thing to
+   show them. Measure the target in usability testing instead.
    --------------------------------------------------------------------- */
 
 export default function QuickCapture({ people, onCreate, onAddPerson, now = Date.now }) {
@@ -23,18 +26,11 @@ export default function QuickCapture({ people, onCreate, onAddPerson, now = Date
   const [title, setTitle] = useState("");
   const [type, setType] = useState("case_report");
   const [authors, setAuthors] = useState([]);
-  const [elapsed, setElapsed] = useState(0);
   const [errors, setErrors] = useState(null);
-  const started = useRef(null);
   const titleRef = useRef(null);
 
   useEffect(() => {
-    if (!open) return;
-    started.current = Date.now();
-    setElapsed(0);
-    titleRef.current?.focus();
-    const t = setInterval(() => setElapsed(Math.floor((Date.now() - started.current) / 1000)), 1000);
-    return () => clearInterval(t);
+    if (open) titleRef.current?.focus();
   }, [open]);
 
   const reset = () => {
@@ -76,16 +72,7 @@ export default function QuickCapture({ people, onCreate, onAddPerson, now = Date
     <div className="rounded-lg p-4" style={{ background: brand.surface, border: `1px solid ${brand.navy}` }}>
       <div className="flex justify-between items-center mb-3">
         <h2 className="text-sm font-semibold" style={{ color: brand.navy }}>New project</h2>
-        <div className="flex items-center gap-3">
-          <span
-            className="text-xs tabular-nums"
-            style={{ color: elapsed > 30 ? "#8A6A00" : brand.slate }}
-            title="Time since you opened this form — an instrument for the 30-second capture target in the spec."
-          >
-            {elapsed}s
-          </span>
-          <button onClick={reset} aria-label="Cancel"><X size={16} style={{ color: brand.slate }} /></button>
-        </div>
+        <button onClick={reset} aria-label="Cancel"><X size={16} style={{ color: brand.slate }} /></button>
       </div>
 
       <Field label="Title">

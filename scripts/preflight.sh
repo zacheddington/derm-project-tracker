@@ -116,7 +116,68 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# 3. Prototype build. Pages publishes exactly this.
+# 3. Deployability. The migrations must install a schema onto an empty
+# database and nothing else.
+#
+# Two things can go wrong here and both are quiet. Sample rows can drift
+# into a migration during development and end up in the real database on
+# day one — a fake resident nobody can explain, or worse, a real one.
+# And a migration can start ALTERing an object, which only makes sense
+# if something was already deployed; nothing has been, so `0001` must
+# stay a from-nothing install.
+# ---------------------------------------------------------------------
+head_ "Deployability"
+
+# Only statements at the top level count. A trigger function that writes
+# to audit_log or people is runtime behaviour, not seed data, and its body
+# is dollar-quoted — so strip $$ … $$ regions before looking.
+strip_bodies() {
+  awk '{ n = gsub(/\$\$/, "&"); if (!inbody) print; if (n % 2 == 1) inbody = !inbody }' "$1"
+}
+
+# The only tables a migration may seed are the vocabularies the schema
+# cannot function without: projects.work_status has a foreign key into
+# work_statuses, so an empty lookup table means nothing can be saved.
+ALLOWED_SEED_TABLES='work_statuses|submission_statuses|app_settings'
+
+seed_hits=$(
+  for f in supabase/migrations/*.sql; do
+    strip_bodies "$f" | sed -e 's/--.*$//' \
+      | grep -inE '^[[:space:]]*insert[[:space:]]+into[[:space:]]+[a-z_]+' \
+      | grep -viE "insert[[:space:]]+into[[:space:]]+($ALLOWED_SEED_TABLES)\b" \
+      | sed "s|^|$f (top level):|"
+  done
+)
+
+if [ -n "$seed_hits" ]; then
+  fail "a migration seeds a table that is not a status vocabulary"
+  printf '%s\n' "$seed_hits" | while read -r l; do detail "$l"; done
+  detail "Sample data belongs in test/01_tests.sql or the prototype, never in a migration."
+else
+  pass "migrations seed only the status vocabularies"
+fi
+
+# Nothing is deployed, so there is nothing to alter. An ALTER here means
+# someone wrote a change-migration against a database that does not exist.
+alter_hits=$(
+  for f in supabase/migrations/*.sql; do
+    strip_bodies "$f" | sed -e 's/--.*$//' \
+      | grep -inE '^[[:space:]]*alter[[:space:]]+(table|type)[[:space:]]' \
+      | grep -viE 'enable row level security' \
+      | sed "s|^|$f:|"
+  done
+)
+
+if [ -n "$alter_hits" ]; then
+  fail "a migration ALTERs an object — the schema is a from-nothing install"
+  printf '%s\n' "$alter_hits" | while read -r l; do detail "$l"; done
+  detail "Until the schema is deployed, edit 0001 in place instead of adding a migration."
+else
+  pass "migrations create rather than alter"
+fi
+
+# ---------------------------------------------------------------------
+# 4. Prototype build. Pages publishes exactly this.
 # ---------------------------------------------------------------------
 head_ "Prototype build"
 
@@ -137,7 +198,7 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# 4. Prototype unit tests.
+# 5. Prototype unit tests.
 #
 # The list behaviour — filtering, sorting, pagination, staleness
 # thresholds, save validation, case-ID issuing — lives in
@@ -163,7 +224,7 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# 5. Database suite: stub -> 0001 -> 0002 -> 0003 -> tests.
+# 6. Database suite: stub -> 0001 -> 0002 -> 0003 -> tests.
 #
 # Every assertion prints PASS or aborts the run, so ON_ERROR_STOP plus a
 # zero exit status is the whole verdict.
