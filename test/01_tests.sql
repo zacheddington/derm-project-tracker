@@ -13,14 +13,38 @@ end $fn$;
 
 -- Asserts that a statement is rejected, and that it is rejected for the
 -- expected reason rather than a typo.
+--
 -- Row Level Security denies a write by matching ZERO ROWS, not by
 -- raising. Only column guards and constraints raise. Both count as
 -- denial; the app layer must treat "0 rows affected" as "not permitted"
 -- rather than as success.
-create or replace function denied(stmt text, label text, expect text default null)
+--
+-- That is also this helper's weak spot, and the reason for `precondition`.
+-- "Zero rows affected" is indistinguishable from "the WHERE clause matched
+-- nothing to begin with", so a typo'd email in a test would sail through
+-- as a PASS and quietly assert nothing at all — in the suite whose whole
+-- job is proving people cannot reach each other's data. Pass a boolean
+-- expression that must be TRUE for the denial to mean anything: normally
+-- "the row I am trying to touch exists, and does not already hold the
+-- value I am trying to set".
+create or replace function denied(
+  stmt         text,
+  label        text,
+  expect       text default null,
+  precondition text default null
+)
 returns void language plpgsql as $fn$
-declare n integer;
+declare n integer; pre boolean;
 begin
+  if precondition is not null then
+    execute 'select (' || precondition || ')' into pre;
+    if pre is not true then
+      raise exception
+        'FAIL  % (precondition false — the statement would have been a no-op, so a denial proves nothing)',
+        label;
+    end if;
+  end if;
+
   execute stmt;
   get diagnostics n = row_count;
   if n = 0 then
@@ -32,6 +56,9 @@ exception
   when insufficient_privilege or check_violation then
     raise notice 'PASS  %', label;
   when others then
+    -- A precondition failure is our own assertion; never swallow it as a
+    -- successful denial.
+    if sqlerrm like 'FAIL %' then raise; end if;
     if sqlstate = '42501' or sqlerrm ilike '%policy%' or sqlerrm ilike '%permission%'
        or (expect is not null and sqlerrm ilike '%' || expect || '%') then
       raise notice 'PASS  %', label;
@@ -59,6 +86,25 @@ end $t$;
 do $t$ begin
   perform denied($$insert into auth.users (email) values ('someone@gmail.com')$$,
                  'non-UMMC email is refused at signup', 'not permitted');
+end $t$;
+
+-- A test of the test. denied() reports "zero rows affected" as a pass,
+-- which is correct for RLS and dangerous for a typo: a WHERE clause that
+-- matches nothing looks identical. Every denial that targets a specific
+-- row therefore carries a precondition, and this proves the precondition
+-- actually bites. If this ever stops failing, the security assertions
+-- below have quietly stopped asserting anything.
+do $t$ begin
+  begin
+    perform denied(
+      $$update people set display_name = 'X' where email = 'nobody@umc.edu'$$,
+      'self-test placeholder', null,
+      $$exists (select 1 from people where email = 'nobody@umc.edu')$$);
+    raise exception 'FAIL  denied() accepted a no-op as a successful denial';
+  exception when others then
+    if sqlerrm like 'FAIL  denied() accepted%' then raise; end if;
+    raise notice 'PASS  denied() refuses to pass a statement that would match nothing';
+  end;
 end $t$;
 
 -- Promote the coordinator to admin (as the service role would, at setup).
@@ -257,34 +303,39 @@ end $t$;
 -- Privilege escalation attempts. Tomi is signed in and is a plain member.
 do $t$ begin
   perform denied(
-    $$update people set permission_level = 'admin' where email = 'tokafor@umc.edu'$$,
-    'a member cannot promote themselves to admin');
+    $update people set permission_level = 'admin' where email = 'tokafor@umc.edu'$,
+    'a member cannot promote themselves to admin', null,
+    $exists (select 1 from people where email = 'tokafor@umc.edu' and permission_level <> 'admin')$);
   perform ok((select permission_level from people where email = 'tokafor@umc.edu') = 'member',
              'the blocked promotion did not take effect');
 
   perform denied(
-    $$update people set display_name = 'Renamed' where email = 'rleblanc@umc.edu'$$,
-    'a member cannot edit another person''s roster entry');
+    $update people set display_name = 'Renamed' where email = 'rleblanc@umc.edu'$,
+    'a member cannot edit another person''s roster entry', null,
+    $exists (select 1 from people where email = 'rleblanc@umc.edu' and display_name <> 'Renamed')$);
   perform ok((select display_name from people where email = 'rleblanc@umc.edu') = 'Rae LeBlanc',
              'the blocked rename did not take effect');
 
   -- Roster facts are an admin's to set, even on your own row. Each of
   -- these is a self-edit, which people_update_self otherwise permits.
   perform denied(
-    $$update people set staff_position = 'attending' where email = 'tokafor@umc.edu'$$,
-    'a member cannot change their own staff position');
+    $update people set staff_position = 'attending' where email = 'tokafor@umc.edu'$,
+    'a member cannot change their own staff position', null,
+    $exists (select 1 from people where email = 'tokafor@umc.edu' and staff_position <> 'attending')$);
   perform ok((select staff_position from people where email = 'tokafor@umc.edu') = 'resident',
              'the blocked position change did not take effect');
 
   perform denied(
-    $$update people set employment_end_date = current_date - 1 where email = 'tokafor@umc.edu'$$,
-    'a member cannot set their own employment end date');
+    $update people set employment_end_date = current_date - 1 where email = 'tokafor@umc.edu'$,
+    'a member cannot set their own employment end date', null,
+    $exists (select 1 from people where email = 'tokafor@umc.edu' and employment_end_date is null)$);
   perform ok((select employment_end_date from people where email = 'tokafor@umc.edu') is null,
              'the blocked end date did not take effect');
 
   perform denied(
-    $$update people set email = 'someone.else@umc.edu' where email = 'tokafor@umc.edu'$$,
-    'a member cannot change the address their sign-in matches on');
+    $update people set email = 'someone.else@umc.edu' where email = 'tokafor@umc.edu'$,
+    'a member cannot change the address their sign-in matches on', null,
+    $exists (select 1 from people where email = 'tokafor@umc.edu')$);
   perform ok((select count(*) from people where email = 'tokafor@umc.edu') = 1,
              'the blocked email change did not take effect');
 
