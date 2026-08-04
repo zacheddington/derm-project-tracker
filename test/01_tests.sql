@@ -325,7 +325,7 @@ end $t$;
 do $t$ begin
   perform denied($$delete from audit_log$$,
                  'even an admin cannot delete audit rows', 'permission');
-  perform denied($$update audit_log set action = 'x'$$,
+  perform denied($$update audit_log set operation = 'x'$$,
                  'even an admin cannot rewrite audit rows', 'permission');
 end $t$;
 

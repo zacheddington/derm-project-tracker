@@ -92,11 +92,50 @@ describe("column names the UI writes to exist in the schema", () => {
   });
 
   it("does not still define the pre-rename column names", () => {
-    for (const gone of [
-      "app_role", "person_role", "project_owners", "is_active",
-      "last_seq", "actor_label", "entity_type", "entity_id",
-    ]) {
+    for (const gone of RENAMED_AWAY) {
       expect(sql).not.toMatch(new RegExp(`\\b${gone}\\b`));
+    }
+  });
+});
+
+/* ---------------------------------------------------------------------
+   A rename has to land in the policies, the views and the tests too.
+
+   This exists because it did not: `audit_log.action` became `operation`
+   in the schema while test/01_tests.sql still wrote `action`, and the
+   only thing that caught it was the database suite failing in CI several
+   minutes later. Grepping every SQL file for the names that no longer
+   exist catches the same mistake in under a second, and names the file.
+   --------------------------------------------------------------------- */
+
+const RENAMED_AWAY = [
+  "app_role", "person_role", "project_owners", "is_active", "owns_project",
+  "research_coordinator", "last_seq", "actor_label", "entity_type", "entity_id",
+  "case_id_counters", "assign_case_id",
+];
+
+const SQL_FILES = [
+  "../../../supabase/migrations/0001_schema.sql",
+  "../../../supabase/migrations/0002_rls.sql",
+  "../../../supabase/migrations/0003_views.sql",
+  "../../../test/01_tests.sql",
+];
+
+describe("no SQL file still refers to a renamed identifier", () => {
+  it.each(SQL_FILES)("%s is free of pre-rename names", (relative) => {
+    const body = readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8")
+      // Comments legitimately use these words in prose — "the admin
+      // merge-duplicates action" is English, not a column.
+      .replace(/--.*$/gm, "");
+    const stale = RENAMED_AWAY.filter((name) => new RegExp(`\\b${name}\\b`).test(body));
+    expect(stale).toEqual([]);
+  });
+
+  it("catches a bare `case_id` that should now be `case_number`", () => {
+    for (const relative of SQL_FILES) {
+      const body = readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8")
+        .replace(/--.*$/gm, "");
+      expect(body).not.toMatch(/\bcase_id\b/);
     }
   });
 });
