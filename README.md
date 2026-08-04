@@ -10,12 +10,12 @@ Built for the UMMC Department of Dermatology against an internal specification (
 ## No protected health information
 
 This system stores none, by design, and that is a structural property rather than a
-policy. Case reports carry a system-generated `case_id` and nothing else. There are no
+policy. Case reports carry a system-generated `case_number` and nothing else. There are no
 columns for patient name, MRN, date of birth, or date of service. Date of service is
 an explicit HIPAA identifier, and date plus attending plus diagnosis is a self-decoding
 lookup key in a department this size.
 
-The mapping from case ID to patient lives in the EMR or REDCap and is never stored in,
+The mapping from case number to patient lives in the EMR or REDCap and is never stored in,
 referenced by, or linked from this repository or its database.
 
 The hosted prototype runs entirely in the browser on invented sample data. It has no
@@ -34,15 +34,15 @@ prototype/              Vite + React UI prototype (deployed to Pages)
   src/lib/                  pure logic, no React — this is what the tests cover
     domain.js               vocabularies, people, academic year, case numbers
     projects.js             filter, sort, paginate, staleness, validation
-    *.test.js               114 assertions, incl. UI/schema vocabulary parity
+    *.test.js               119 assertions, incl. UI/schema vocabulary parity
   src/components/           panels and primitives
 supabase/migrations/
-  0001_schema.sql       tables, constraints, case-ID generation, search, audit log
+  0001_schema.sql       tables, constraints, case-number generation, search, audit log
   0002_rls.sql          role helpers, auth linking, Row Level Security policies
   0003_views.sql        CSV export, venue export, ACGME view, dashboard counts
 test/
   00_supabase_stub.sql  local stand-in for Supabase's auth schema (not deployed)
-  01_tests.sql          53 behavioral assertions
+  01_tests.sql          51 behavioral assertions
 scripts/
   preflight.sh          everything that must pass before pushing
 .github/workflows/
@@ -125,10 +125,10 @@ Five sections, in the order a mistake costs the most:
    these identifiers at length in order to explain why they are absent. This is the one
    rule the whole design rests on, so it is checked mechanically rather than remembered.
 3. **Prototype build** — `npm ci && npm run build`, the same thing Pages publishes.
-4. **Prototype tests** — 114 assertions over `prototype/src/lib`, including a parity
+4. **Prototype tests** — 119 assertions over `prototype/src/lib`, including a parity
    check that reads `0001_schema.sql` and fails if any vocabulary has drifted from the
    interface.
-5. **Database suite** — stub → 0001 → 0002 → 0003 → behavioural assertions.
+5. **Database suite** — stub → 0001 → 0002 → 0003 → 51 behavioural assertions.
 
 Add to the tests whenever you change behaviour. The list logic lives in
 `prototype/src/lib` as pure functions specifically so a scenario can be written for it

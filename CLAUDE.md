@@ -12,7 +12,7 @@ never widen `year_seen` into a full date. Date of service is an explicit HIPAA
 identifier, and date + attending + diagnosis re-identifies a patient in a department
 this size.
 
-Case reports carry a generated `case_id` and nothing else. The mapping to a patient
+Case reports carry a generated `case_number` and nothing else. The mapping to a patient
 lives in the EMR or REDCap and is never stored here, referenced, or linked.
 
 If a request would need PHI, stop and say so rather than working around it. That is a
@@ -23,7 +23,7 @@ this application.
 
 - `supabase/migrations/` — `0001` schema, `0002` RLS and auth, `0003` reporting views.
   Apply in order.
-- `test/01_tests.sql` — 53 behavioral assertions. `test/00_supabase_stub.sql` is a local
+- `test/01_tests.sql` — 51 behavioral assertions. `test/00_supabase_stub.sql` is a local
   stand-in for Supabase's `auth` schema and roles; **never apply it to a real project.**
 - `prototype/` — Vite + React UI prototype, browser-only, mock data, no backend.
   `src/lib/` holds the list logic as pure functions with `*.test.js` beside them;
@@ -39,7 +39,7 @@ The Next.js application does not exist yet. That is the next block of work.
 ```bash
 ./scripts/preflight.sh                         # must pass before pushing anything
 cd prototype && npm install && npm run dev     # prototype, local
-cd prototype && npm test                       # 65 assertions over src/lib
+cd prototype && npm test                       # 119 assertions over src/lib
 ```
 
 `preflight.sh` checks, in order: no secrets or dumps tracked; no PHI identifier in live
@@ -67,13 +67,13 @@ does it for you — **destructively**, so never point it at a database holding r
   a normalizing trigger, not `citext`. Keep it that way — a stock-Postgres `pg_dump`
   restore is the handoff requirement.
 - **Academic year is the July 1 start year** as an integer. `2026` means AY 2026–2027.
-  `academic_year_of(date)` is the single source of truth. Case IDs follow it:
+  `academic_year_of(date)` is the single source of truth. Case numbers follow it:
   `CR-2026-014`.
 - **Soft delete by default.** "Delete" sets `archived_at`. Hard delete is admin-only and
   needs a confirmation step in the UI.
-- **A case ID is issued from the highest already used, never from a count.** Counting
+- **A case number is issued from the highest already used, never from a count.** Counting
   reissues a number the moment a case report is archived or retyped. Once issued, a case
-  ID is never renumbered or reissued — the sequence is a count of case reports opened
+  number is never renumbered or reissued — the sequence is a count of case reports opened
   that year, and reusing a number makes it lie.
 - **Authors can be emptied in the editor but not saved empty.** Removing the last chip is
   allowed on purpose: you have to be able to take the wrong name off before adding the
@@ -110,7 +110,7 @@ does it for you — **destructively**, so never point it at a database holding r
   as "not permitted" and tell the user. Column guards do raise; only RLS is quiet.
 - Functions that write during `INSERT` on `projects` need `SECURITY DEFINER`, because
   the row has no owner yet and the owner-based `UPDATE` policy would reject them. This
-  already bit `refresh_project_search` and `assign_case_id`.
+  already bit `refresh_project_search` and `assign_case_number`.
 - Privilege guards intentionally step aside when `auth.uid()` is null. That path means
   service role, migration, or SQL editor, and it is how the first admin is bootstrapped.
 - Views must be created `with (security_invoker = true)` or they bypass RLS entirely.
