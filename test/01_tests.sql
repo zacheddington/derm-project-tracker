@@ -90,6 +90,33 @@ do $t$ begin
     'duplicate email is refused', 'unique');
 end $t$;
 
+-- external_position exists only for people the vocabulary cannot describe.
+do $t$ begin
+  perform denied(
+    $$insert into people (display_name, staff_position, external_position)
+      values ('Wrong', 'attending', 'Pathologist')$$,
+    'external_position is rejected on departmental staff');
+
+  insert into people (display_name, staff_position, external_position)
+    values ('Ben Iwu', 'external_collaborator', 'Dermatopathologist, Baptist Health');
+  perform ok((select external_position from people where display_name = 'Ben Iwu')
+             = 'Dermatopathologist, Baptist Health',
+             'external_position is accepted on an external collaborator');
+end $t$;
+
+-- Employment is a date range. NULL means still here; a future date means
+-- notice has been given but they have not left yet.
+do $t$ begin
+  perform ok(is_currently_employed(null),
+             'no end date means currently employed');
+  perform ok(is_currently_employed(current_date),
+             'the last day of employment still counts as employed');
+  perform ok(is_currently_employed(current_date + 30),
+             'someone who has given notice is still employed');
+  perform ok(not is_currently_employed(current_date - 1),
+             'the day after the end date they are former staff');
+end $t$;
+
 -- ---------------------------------------------------------------------
 -- Now act as real users, through RLS
 -- ---------------------------------------------------------------------
@@ -280,6 +307,41 @@ begin
            (pid, 'journal', 'JAAD Case Reports', 'in_review');
   perform ok((select count(*) from project_venues where project_id = pid) = 2,
              'a project can hold two venues at different stages at once');
+
+  -- A free-text description of "other" must not survive a change of kind,
+  -- or the row quietly starts lying about what it is.
+  perform denied(
+    format($$insert into project_venues (project_id, venue_type, venue_name, other_venue_description)
+             values (%L, 'poster', 'Somewhere', 'Grand rounds elsewhere')$$, pid),
+    'other_venue_description is rejected unless the kind is Other');
+
+  insert into project_venues (project_id, venue_type, venue_name, other_venue_description)
+    values (pid, 'other', 'Regional teaching day', 'Grand rounds at another institution');
+  perform ok((select other_venue_description from project_venues
+               where venue_name = 'Regional teaching day')
+             = 'Grand rounds at another institution',
+             'other_venue_description is accepted when the kind is Other');
+  delete from project_venues where venue_name = 'Regional teaching day';
+end $t$;
+
+-- Swapping the only author inside one transaction. The min-one rule is a
+-- DEFERRED constraint precisely so this works: the project is briefly
+-- authorless mid-transaction and nobody should have to add-then-remove.
+do $t$
+declare pid uuid; rae uuid; tomi uuid;
+begin
+  select id into rae  from people where email = 'rleblanc@umc.edu';
+  select id into tomi from people where email = 'tokafor@umc.edu';
+  insert into projects (title, project_type, created_by)
+    values ('Author swap', 'review', rae) returning id into pid;
+  insert into project_authors (project_id, person_id) values (pid, rae);
+
+  delete from project_authors where project_id = pid;          -- now zero
+  insert into project_authors (project_id, person_id) values (pid, tomi);
+  set constraints all immediate;                                -- force the check
+
+  perform ok((select person_id from project_authors where project_id = pid) = tomi,
+             'the sole author can be swapped inside one transaction');
 end $t$;
 
 -- Tomi, now a co-author, can edit

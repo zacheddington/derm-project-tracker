@@ -23,7 +23,7 @@ this application.
 
 - `supabase/migrations/` — `0001` schema, `0002` RLS and auth, `0003` reporting views.
   Apply in order.
-- `test/01_tests.sql` — 51 behavioral assertions. `test/00_supabase_stub.sql` is a local
+- `test/01_tests.sql` — behavioural assertions over schema, RLS and views. `test/00_supabase_stub.sql` is a local
   stand-in for Supabase's `auth` schema and roles; **never apply it to a real project.**
 - `prototype/` — Vite + React UI prototype, browser-only, mock data, no backend.
   `src/lib/` holds the list logic as pure functions with `*.test.js` beside them;
@@ -39,7 +39,7 @@ The Next.js application does not exist yet. That is the next block of work.
 ```bash
 ./scripts/preflight.sh                         # must pass before pushing anything
 cd prototype && npm install && npm run dev     # prototype, local
-cd prototype && npm test                       # 119 assertions over src/lib
+cd prototype && npm test                       # 137 assertions over src/lib
 ```
 
 `preflight.sh` checks, in order: no secrets or dumps tracked; no PHI identifier in live

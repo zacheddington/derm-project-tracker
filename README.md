@@ -34,7 +34,8 @@ prototype/              Vite + React UI prototype (deployed to Pages)
   src/lib/                  pure logic, no React — this is what the tests cover
     domain.js               vocabularies, people, academic year, case numbers
     projects.js             filter, sort, paginate, staleness, validation
-    *.test.js               119 assertions, incl. UI/schema vocabulary parity
+    exportCsv.js            the CSV handoff (§7), separated from the download
+    *.test.js               137 assertions, incl. UI/schema vocabulary parity
   src/components/           panels and primitives
 supabase/migrations/
   0001_schema.sql       tables, constraints, case-number generation, search, audit log
@@ -125,10 +126,10 @@ Five sections, in the order a mistake costs the most:
    these identifiers at length in order to explain why they are absent. This is the one
    rule the whole design rests on, so it is checked mechanically rather than remembered.
 3. **Prototype build** — `npm ci && npm run build`, the same thing Pages publishes.
-4. **Prototype tests** — 119 assertions over `prototype/src/lib`, including a parity
+4. **Prototype tests** — 137 assertions over `prototype/src/lib`, including a parity
    check that reads `0001_schema.sql` and fails if any vocabulary has drifted from the
    interface.
-5. **Database suite** — stub → 0001 → 0002 → 0003 → 51 behavioural assertions.
+5. **Database suite** — stub → 0001 → 0002 → 0003 → behavioural assertions, including the new constraints.
 
 Add to the tests whenever you change behaviour. The list logic lives in
 `prototype/src/lib` as pure functions specifically so a scenario can be written for it

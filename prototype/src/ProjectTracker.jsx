@@ -5,14 +5,15 @@ import {
 } from "lucide-react";
 
 import {
-  brand, WORK_STATUSES, SUBMISSION_STATUSES, TYPES, IRB_STATUSES, CONSENT,
-  STAFF_POSITIONS, VENUE_TYPES, label, ayLabel, academicYearOf, activePeople,
+  brand, WORK_STATUSES, SUBMISSION_STATUSES, TYPES,
+  label, ayLabel, academicYearOf, activePeople,
   updatePerson, nextCaseId,
 } from "./lib/domain.js";
 import {
   EMPTY_FILTERS, PAGE_SIZE, filterProjects, sortProjects, nextSort, paginate,
   stalenessCounts, stalenessLabel, nextStaleFilter,
 } from "./lib/projects.js";
+import { downloadCsv } from "./lib/exportCsv.js";
 import { Badge } from "./components/primitives.jsx";
 import { inputStyle } from "./components/primitives.jsx";
 import QuickCapture from "./components/QuickCapture.jsx";
@@ -361,51 +362,7 @@ export default function ProjectTracker() {
     setPage(1);
   };
 
-  const exportCsv = () => {
-    const cols = [
-      "title", "type", "work_status", "academic_year", "authors", "resident_authors",
-      "case_number", "diagnosis", "why_unique", "year_seen", "consent", "attending",
-      "description", "irb_status", "purpose", "venues", "next_action",
-      "next_action_due_date", "updated_at", "archived",
-    ];
-    const esc = (v) => {
-      const s = v == null ? "" : String(v);
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const venueLabel = (v) =>
-      v.venue_type === "other" && v.other_venue_description
-        ? `${v.venue_name} [${v.other_venue_description}]`
-        : v.venue_name;
-    const rows = projects.map((p) => [
-      p.title,
-      label(TYPES, p.project_type),
-      label(WORK_STATUSES, p.work_status),
-      ayLabel(p.academic_year),
-      p.authors.map(nameOf).join("; "),
-      p.authors.filter((o) => people.find((x) => x.id === o)?.staff_position === "resident").map(nameOf).join("; "),
-      p.details?.case_number || "",
-      p.details?.diagnosis || "",
-      p.details?.why_unique || "",
-      p.details?.year_seen || "",
-      p.details?.patient_consent_obtained ? label(CONSENT, p.details.patient_consent_obtained) : "",
-      p.details?.attending_id ? nameOf(p.details.attending_id) : "",
-      p.details?.description || "",
-      label(IRB_STATUSES, p.irb_status),
-      p.purpose,
-      p.venues.map((v) => `${venueLabel(v)} (${label(SUBMISSION_STATUSES, v.submission_status)})`).join("; "),
-      p.next_action,
-      p.next_action_due_date,
-      p.updated_at.slice(0, 10),
-      p.archived_at ? "yes" : "no",
-    ]);
-    const csv = [cols.join(","), ...rows.map((r) => r.map(esc).join(","))].join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `derm-projects-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const exportCsv = () => downloadCsv(projects, people);
 
   const selectStyle = { border: `1px solid ${brand.border}`, background: brand.surface, color: brand.navy };
   const open = projects.find((p) => p.id === openId);
