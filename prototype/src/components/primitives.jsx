@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useId } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import { brand, label, toneOf, scanForIdentifiers } from "../lib/domain.js";
 
@@ -20,14 +20,60 @@ export function Badge({ list, code, small }) {
   );
 }
 
-export function Field({ label: lbl, children, hint }) {
+/* A labelled field.
+
+   `group` is not cosmetic. A <label> may be associated with exactly ONE
+   form control; wrapping several in one label is invalid HTML, and the
+   accessible-name algorithm then hands EVERY control inside it the
+   label's whole text. The four project-type buttons were announcing
+   themselves as "Type QA/QI Research Review Set the wrong one on
+   capture?…" instead of "Case report" — indistinguishable from each
+   other to anyone using a screen reader.
+
+   So: a single control keeps the implicit <label> association, and
+   anything holding several controls becomes a labelled group instead,
+   leaving each control its own name. Pass `group` whenever the children
+   are more than one focusable thing. */
+export function Field({ label: lbl, children, hint, group = false }) {
+  const id = useId();
+  const labelId = `${id}-label`;
+  const hintId = `${id}-hint`;
+
+  const labelText = (
+    <span
+      id={group ? labelId : undefined}
+      className="block text-xs font-semibold tracking-wide uppercase mb-1.5"
+      style={{ color: brand.slate }}
+    >
+      {lbl}
+    </span>
+  );
+  const hintText = hint && (
+    <span id={group ? hintId : undefined} className="block text-xs mt-1" style={{ color: brand.slate }}>
+      {hint}
+    </span>
+  );
+
+  if (group) {
+    return (
+      <div
+        className="block mb-4"
+        role="group"
+        aria-labelledby={labelId}
+        aria-describedby={hint ? hintId : undefined}
+      >
+        {labelText}
+        {children}
+        {hintText}
+      </div>
+    );
+  }
+
   return (
     <label className="block mb-4">
-      <span className="block text-xs font-semibold tracking-wide uppercase mb-1.5" style={{ color: brand.slate }}>
-        {lbl}
-      </span>
+      {labelText}
       {children}
-      {hint && <span className="block text-xs mt-1" style={{ color: brand.slate }}>{hint}</span>}
+      {hintText}
     </label>
   );
 }

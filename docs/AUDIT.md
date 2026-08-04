@@ -22,10 +22,10 @@ fails on Windows with `EPERM … esbuild.exe`.
 | 3 | Database deployability (no test data, clean install) | ☑ |
 | 4 | Security review — findings and fixes | ☑ |
 | 5 | Test scenario audit — quality of what exists | ☑ |
-| 6 | Component tests | ☐ ← **START HERE** |
+| 6 | Component tests | ☑ |
 | 7 | Production readiness checklist | ☑ written; the decisions are yours |
 
-Current gate: **142 prototype assertions + 75 database assertions**, all green in CI.
+Current gate: **224 prototype assertions + 76 database assertions**, all green in CI.
 
 ---
 
@@ -201,43 +201,62 @@ the clock, so nothing is time-flaky.
 
 ---
 
-## 6. Component tests ☐ ← START HERE
+## 6. Component tests ☑
 
-The one substantial gap left. Deliberately not started rather than half-done.
+82 component assertions across three files, run in jsdom under the same `npm test`.
+Vitest defaults to the `node` environment so the pure-logic suites stay fast; the
+component files opt in with a `@vitest-environment jsdom` docblock.
 
-**What is missing.** Nothing in `prototype/src/components/` has automated coverage — the
-modals, the detail panel's draft/save/cancel cycle, the author picker, the roster panel,
-the attending picker. They are verified by driving a real browser by hand. That has caught
-real bugs, but it does not run in CI, so nothing stops a regression reaching `main`.
+- `DetailPanel.test.jsx` (26) — the draft/save/cancel cycle, the refusal to save with no
+  authors, venue delete confirmation, type change preserving an issued case number, the
+  attendings-only picker, archive/restore.
+- `RosterPanel.test.jsx` (15) — current vs former as exclusive views, search within the
+  active tab, rename patching by id, and the end date going out as `null` rather than `""`.
+- `AuthorPicker.test.jsx` (19, including quick capture) — removing the last chip,
+  excluding people already selected or departed, inline roster creation, and quick
+  capture refusing to create a project with no author or no title.
 
-**Why it matters.** The logic in `src/lib` is well covered. The *wiring* is not. A
-component can pass every unit test and still never call the function.
+### They found a real accessibility bug on the first run
 
-**Setup:**
+`Field` wrapped its children in a `<label>`. A label may be associated with exactly ONE
+control, so the four project-type buttons all sat inside one label and the
+accessible-name algorithm gave every one of them the label's entire text:
 
-```bash
-cd prototype
-npm i -D @testing-library/react @testing-library/user-event @testing-library/jest-dom jsdom
-```
+> "Type QA/QI Research Review Set the wrong one on capture? Change it here…"
 
-Add `test: { environment: "jsdom", globals: true }` to `vite.config.js`. Note vitest 4 is
-installed and its jsdom setup differs from vitest 2 — check current docs.
+Four buttons, indistinguishable to anyone using a screen reader, and invalid HTML. The
+same applied to the author picker and the attending picker.
 
-**Scenarios, highest value first:**
+Fixed with a `group` prop: a single control keeps the implicit `<label>`, while a field
+holding several controls renders `role="group"` with `aria-labelledby` and
+`aria-describedby`, leaving each control its own name. Verified in a real browser — the
+type buttons now compute as "Case report", "QA/QI", "Research", "Review", and single
+inputs still read "Title" and "Diagnosis".
 
-1. **DetailPanel save/cancel.** Editing sets dirty; Save calls `onSave` once with the
-   edited draft; Cancel with unsaved edits raises the discard dialog; discarding does not
-   call `onSave`. This is the flow most likely to silently lose someone's work.
-2. **Save with zero authors raises the dialog and does NOT call `onSave`.** The unit test
-   proves `validateProject` returns the error; nothing proves the panel honours it.
-3. **Venue delete confirmation.** The X opens the dialog; "Keep it" leaves the venue;
-   "Delete venue" removes exactly the one clicked.
-4. **AuthorPicker** removes the last chip and shows the warning; adding a person calls
-   `onAddPerson` and selects the result.
-5. **AttendingPicker** lists only attendings, keeps a currently-set non-attending, and the
-   "+ Add" path creates and selects.
-6. **RosterPanel** tab switch is exclusive; search filters within the active tab.
-7. **Type change** preserves an already-issued case number.
+Two smaller fixes fell out of the same pass: the panel's header X and its footer button
+were both named "Close" (the header is now "Close panel"), and the roster list gained
+`role="list"` / `role="listitem"`, which is both correct semantics and what makes a row
+addressable in a test.
+
+### Also added: the RLS write guard — `src/lib/supabaseWrite.js` (22 assertions)
+
+Not a component test, but the fix for the production bug flagged in §7. There is no
+Next.js app yet, so there was no bug to fix — there was a trap to remove.
+
+RLS refuses a write by matching **zero rows**, so PostgREST returns
+`{ data: [], error: null }`: identical to a successful update of nothing, and identical
+to what `if (error)` treats as success. Written the obvious way, a user without
+permission is told their edit saved. It did not.
+
+`rowsFromWrite` / `rowFromWrite` / `writeOne` / `writeMany` turn that into a thrown
+`NotPermittedError` carrying a message worth showing. They also refuse to guess when
+`.select()` was omitted — a successful write without it returns `data: null`, which is
+indistinguishable from a refusal if you are counting rows — and they keep genuine
+database errors distinct from denials.
+
+**This module is not prototype code.** It lives in `src/lib` because that is where the
+repo's tested, framework-free logic lives, and it exists ahead of the app so the app is
+built on it rather than on a warning in a document. Move it with the app.
 
 ---
 

@@ -35,15 +35,16 @@ prototype/              Vite + React UI prototype (deployed to Pages)
     domain.js               vocabularies, people, academic year, case numbers
     projects.js             filter, sort, paginate, staleness, validation
     exportCsv.js            the CSV handoff (§7), separated from the download
-    *.test.js               137 assertions, incl. UI/schema vocabulary parity
-  src/components/           panels and primitives
+    supabaseWrite.js        write guards for the future app — see AUDIT.md §6
+    *.test.js               224 assertions: logic, schema parity, components
+  src/components/           panels and primitives, with jsdom tests beside them
 supabase/migrations/
   0001_schema.sql       tables, constraints, case-number generation, search, audit log
   0002_rls.sql          role helpers, auth linking, Row Level Security policies
   0003_views.sql        CSV export, venue export, ACGME view, dashboard counts
 test/
   00_supabase_stub.sql  local stand-in for Supabase's auth schema (not deployed)
-  01_tests.sql          51 behavioral assertions
+  01_tests.sql          76 behavioural assertions
 scripts/
   preflight.sh          everything that must pass before pushing
 .github/workflows/
@@ -126,7 +127,7 @@ Five sections, in the order a mistake costs the most:
    these identifiers at length in order to explain why they are absent. This is the one
    rule the whole design rests on, so it is checked mechanically rather than remembered.
 3. **Prototype build** — `npm ci && npm run build`, the same thing Pages publishes.
-4. **Prototype tests** — 137 assertions over `prototype/src/lib`, including a parity
+4. **Prototype tests** — 224 assertions over `prototype/src/lib` and `src/components`, including a parity
    check that reads `0001_schema.sql` and fails if any vocabulary has drifted from the
    interface.
 5. **Database suite** — stub → 0001 → 0002 → 0003 → behavioural assertions, including the new constraints.

@@ -39,7 +39,7 @@ The Next.js application does not exist yet. That is the next block of work.
 ```bash
 ./scripts/preflight.sh                         # must pass before pushing anything
 cd prototype && npm install && npm run dev     # prototype, local
-cd prototype && npm test                       # 137 assertions over src/lib
+cd prototype && npm test                       # 224 assertions: logic + components
 ```
 
 `preflight.sh` checks, in order: no secrets or dumps tracked; no PHI identifier in live
@@ -108,6 +108,8 @@ does it for you — **destructively**, so never point it at a database holding r
   returns success with nothing changed, and Supabase clients report an empty array
   rather than an exception. Any write path in the frontend must treat "0 rows affected"
   as "not permitted" and tell the user. Column guards do raise; only RLS is quiet.
+  `src/lib/supabaseWrite.js` exists so this cannot be got wrong — use `writeOne`/`writeMany`
+  rather than checking `error` by hand.
 - Functions that write during `INSERT` on `projects` need `SECURITY DEFINER`, because
   the row has no owner yet and the owner-based `UPDATE` policy would reject them. This
   already bit `refresh_project_search` and `assign_case_number`.

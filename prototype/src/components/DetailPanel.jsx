@@ -163,7 +163,7 @@ export default function DetailPanel({
               </div>
               <h2 className="text-lg font-semibold leading-snug" style={{ color: brand.navy }}>{draft.title}</h2>
             </div>
-            <button onClick={attemptClose} aria-label="Close"><X size={20} style={{ color: brand.slate }} /></button>
+            <button onClick={attemptClose} aria-label="Close panel"><X size={20} style={{ color: brand.slate }} /></button>
           </div>
 
           <div className="flex gap-1 mt-3 -mb-4">
@@ -193,7 +193,7 @@ export default function DetailPanel({
                 <IdentifierNotice text={draft.title} />
               </Field>
 
-              <Field label="Type" hint="Set the wrong one on capture? Change it here — nothing is lost, and a case ID once issued is kept.">
+              <Field group label="Type" hint="Set the wrong one on capture? Change it here — nothing is lost, and a case number once issued is kept.">
                 <div className="flex flex-wrap gap-1.5">
                   {TYPES.map((t) => (
                     <button
@@ -222,7 +222,7 @@ export default function DetailPanel({
                 </Field>
               </div>
 
-              <Field label="Author(s)">
+              <Field group label="Author(s)">
                 <AuthorPicker people={people} selected={draft.authors} onChange={(o) => set({ authors: o })}
                               onAddPerson={onAddPerson} now={now()} />
               </Field>
@@ -260,7 +260,7 @@ export default function DetailPanel({
                     <IdentifierNotice text={draft.details.why_unique} />
                   </Field>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
-                    <Field label="Attending">
+                    <Field group label="Attending">
                       <AttendingPicker
                         people={people}
                         value={draft.details.attending_id || ""}

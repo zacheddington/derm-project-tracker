@@ -46,6 +46,7 @@ function PersonRow({ person, projectCount, onSave, now }) {
   if (!editing) {
     return (
       <div
+        role="listitem"
         className="flex items-center gap-3 px-3 py-2.5"
         style={{ borderBottom: `1px solid ${brand.border}` }}
       >
@@ -75,7 +76,7 @@ function PersonRow({ person, projectCount, onSave, now }) {
   }
 
   return (
-    <div className="px-3 py-3" style={{ borderBottom: `1px solid ${brand.border}`, background: brand.bg }}>
+    <div role="listitem" className="px-3 py-3" style={{ borderBottom: `1px solid ${brand.border}`, background: brand.bg }}>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3">
         <Field label="Name">
           <TextInput
@@ -229,7 +230,8 @@ export default function RosterPanel({ people, projects, onSavePerson, onAddPerso
             </div>
           )}
 
-          <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${brand.border}` }}>
+          <div role="list" aria-label={showFormer ? "Former staff" : "Current staff"}
+               className="rounded-lg overflow-hidden" style={{ border: `1px solid ${brand.border}` }}>
             {shown.map((p) => (
               <PersonRow key={p.id} person={p} projectCount={countFor(p.id)} onSave={onSavePerson} now={now} />
             ))}

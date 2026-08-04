@@ -86,7 +86,7 @@ export default function QuickCapture({ people, onCreate, onAddPerson, now = Date
         <IdentifierNotice text={title} />
       </Field>
 
-      <Field label="Type" hint="Pick the closest one. It can be changed later without recreating the project.">
+      <Field group label="Type" hint="Pick the closest one. It can be changed later without recreating the project.">
         <div className="flex flex-wrap gap-1.5">
           {TYPES.map((t) => (
             <button
@@ -106,7 +106,7 @@ export default function QuickCapture({ people, onCreate, onAddPerson, now = Date
         </div>
       </Field>
 
-      <Field label="Author(s)">
+      <Field group label="Author(s)">
         <AuthorPicker people={people} selected={authors} onChange={setAuthors} onAddPerson={onAddPerson} now={now()} />
       </Field>
 
