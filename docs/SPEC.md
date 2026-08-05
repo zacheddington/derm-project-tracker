@@ -197,7 +197,7 @@ and add this table later — but the schema should be designed so the migration 
 
 **Case report**
 
-- `case_id` — system-generated, e.g. CR-2026-014. The only patient reference stored.
+- `case_number` — system-generated, e.g. CR-2026-014. The only patient reference stored.
   Carries no information on its own.
 - `diagnosis` — required
 - `why_unique` — required, free text

@@ -286,6 +286,54 @@ future refactor could quietly break.
 
 ---
 
+## 2026-08-05 — The capture timer and the staleness banners are gone, and stay gone
+
+The new-project form once showed an elapsed-seconds counter, and the list once carried
+"not been touched in 90 days" banners with an age filter to match.
+
+The timer measured the spec's thirty-second capture target. That is an instrument for
+judging the design, not information the person typing can act on, and it put a running
+stopwatch on someone writing up a case report. Measure the target in usability testing.
+
+The banners scolded people for the natural rhythm of academic work — a project genuinely
+does sit still between IRB submission and approval — and the amber-then-red escalation
+made the list feel like an overdue-bills notice. `stalenessLabel` survives because the
+Updated column still reads "3 days ago"; the judgement attached to it does not.
+`dashboard_counts.stale_count` also survives, because "how many have gone quiet" is a
+fair reporting question even though a banner was the wrong way to ask it.
+
+Recorded here rather than guarded by tests. Three assertions existed purely to prove
+these features were still absent; they could never fail unless someone deliberately
+re-added the feature, and they left a new reader wondering what a staleness banner was.
+A decision log is the right place for "we removed this on purpose".
+
+## 2026-08-05 — `purpose` is back in the detail panel
+
+It should never have left. `projects.purpose` is spec §5, it is a real column, it is
+weighted into the search vector, `project_export` selects it, the prototype's search
+box offers it by name in its own placeholder — and the panel had no field for it. The
+only purposes in the system were the ones the seed data shipped with, and the app
+invited people to search a field it gave them no way to write.
+
+There was no decision recorded for removing it, and a test asserting its absence was
+holding the gap open. Restored as an optional textarea under Author(s), with the
+identifier tripwire attached like the other free-text fields.
+
+## 2026-08-05 — Lint is one rule, and it is not about style
+
+`npm run lint` enforces exactly one thing: no unused variables or imports. It is a
+preflight section and it blocks a push.
+
+It is not a formatter and must not become one. Nothing in it reformats code or fails a
+build over a quote character, because that turns a useful gate into noise people learn
+to skip. The single rule earns its place because an unused import is how a deleted
+feature leaves a trace, and nothing else in the build notices — the bundle still
+compiles and the tests still pass while a new reader cannot tell residue from something
+load-bearing. Two hand audits missed exactly this; the linter found it in a second.
+
+If something is genuinely unused, delete it. Do not silence the rule with a disable
+comment.
+
 ## Still open
 
 Do not invent answers to these; ask.
@@ -307,3 +355,10 @@ Do not invent answers to these; ask.
    problem in different clothing.
 7. **Licensing.** No LICENSE file, so default copyright applies. Who owns work product
    created for a UMMC department is a question for the department.
+8. **Whether the repo stays public.** It holds no secrets and no PHI, and preflight
+   enforces both, so public is defensible — but it should be a decision rather than a
+   default.
+9. **Whether `prototype/src/lib/supabaseWrite.js` stays.** It is reachable from nothing
+   today because the Next.js app does not exist, so it is the one file that reads as
+   dead weight to someone new. It exists ahead of the app deliberately, so the app gets
+   built on it rather than on a warning in a document. Keep it or drop it, but decide.

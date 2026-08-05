@@ -28,6 +28,9 @@ this application.
 - `prototype/` — Vite + React UI prototype, browser-only, mock data, no backend.
   `src/lib/` holds the list logic as pure functions with `*.test.js` beside them;
   `src/components/` holds the panels. Put new behaviour in `lib/` and write the scenario.
+  `components/primitives.jsx` holds the controls with no domain knowledge (`Field`,
+  `Modal`, `ChoiceButtons`, `DateInput`); anything that knows what a person or a project
+  *is* gets its own file, like `NewPersonForm.jsx`.
 - `scripts/preflight.sh` — the pre-push gate. `.github/workflows/ci.yml` runs the same
   script with `--require-db` on every push and PR.
 - `.github/workflows/deploy-pages.yml` — publishes the prototype to GitHub Pages.
@@ -39,13 +42,29 @@ The Next.js application does not exist yet. That is the next block of work.
 ```bash
 ./scripts/preflight.sh                         # must pass before pushing anything
 cd prototype && npm install && npm run dev     # prototype, local
-cd prototype && npm test                       # 224 assertions: logic + components
+cd prototype && npm test                       # 350 assertions: logic + components
+cd prototype && npm run lint                   # unused imports and variables only
 ```
 
 `preflight.sh` checks, in order: no secrets or dumps tracked; no PHI identifier in live
-migration SQL and `year_seen` still `smallint`; the prototype builds; the database suite
-passes. It skips the database section when it cannot reach Postgres and says so — CI
-runs it with `--require-db`, so a green local run with a skip is a weaker claim.
+migration SQL and `year_seen` still `smallint`; the prototype builds; **lint passes**; the
+tests pass; **`docs/FEATURES.md` was updated if the interface changed**; the database
+suite passes. It skips the database section when it cannot reach Postgres and says so —
+CI runs it with `--require-db`, so a green local run with a skip is a weaker claim.
+
+**`docs/FEATURES.md` is a deliverable, not a courtesy.** It is what the department is
+handed to understand what the system does, so a push that changes
+`ProjectTracker.jsx`, anything in `components/`, or `lib/domain|projects|exportCsv.js`
+must also touch it: delete what is gone, correct what changed, add what is new, and move
+the date at the top. Write it in the user's language, not the schema's. A refactor with
+genuinely no user-visible effect says `[no-user-impact]` in the commit message — that is
+a claim on the record, not a way to skip the step.
+
+The lint config is deliberately one rule, not a style guide: **no unused variables or
+imports**. That is how a removed feature leaves a trace, and nothing else in the build
+notices — the bundle still compiles and the tests still pass while a new reader cannot
+tell residue from something load-bearing. Do not add formatting rules to it; do not
+silence it with a disable comment. If something is genuinely unused, delete it.
 
 Database tests need a scratch Postgres 16. Load in order: stub → 0001 → 0002 → 0003 →
 tests. Every assertion prints PASS or aborts the run. Set `DATABASE_URL` and preflight
@@ -95,7 +114,10 @@ does it for you — **destructively**, so never point it at a database holding r
 - **Column names say what they hold.** `staff_position` (what someone is) is separate from
   `permission_level` (what they may do); `case_number` is a human-readable sequence, not a
   foreign key; `employment_end_date` replaced an ambiguous `is_active`. If a name needs a
-  sentence of explanation to a DBA, it is the wrong name.
+  sentence of explanation to a DBA, it is the wrong name. The exception is domain jargon:
+  `qa_qi` and `pgy_level` stay exactly as they are, because they are what the department
+  and ACGME call these things, and inventing a clearer-sounding name for a term of art
+  makes it worse rather than better.
 - **Sort keys are computed once per row, never inside a comparator.** A comparator runs
   O(n log n) times; the authors key maps ids to names and sorts them. Doing it per
   comparison measured 51ms at 1,000 rows against 0.9ms per row-wise.
@@ -132,12 +154,11 @@ does it for you — **destructively**, so never point it at a database holding r
 
 ## Open questions — do not invent answers to these
 
-Ask rather than guessing:
+They live in **one place**: the `## Still open` section at the end of `docs/DECISIONS.md`.
+Read it before answering anything that sounds like a product decision, and add to it
+rather than deciding. That list used to be restated in four files, which is how it ended
+up four different lengths.
 
-1. The ACGME export shape. `acgme_scholarly_activity` is a placeholder guess. The
-   program coordinator has the real field list.
-2. Brand guide hex values. Everything comes from the `brand` object at the top of
-   `ProjectTracker.jsx`. No logo, seal, or wordmark may be used — text wordmark only.
-3. SSO vs magic link. Schema supports both; the choice depends on UMMC IT's timeline.
-4. Whether the repo and hosting accounts move to a departmental owner. The spec (§11)
-   says they should.
+The two that most often get guessed at: the ACGME export shape (the program coordinator
+has the real field list) and the brand hex values (everything derives from the `brand`
+object in `lib/domain.js`; no logo, seal or wordmark may be used — text wordmark only).

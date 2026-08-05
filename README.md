@@ -28,16 +28,21 @@ backend, saves nothing, and transmits nothing.
 ```
 CLAUDE.md               project context loaded by Claude Code every session
 docs/SPEC.md            the original build specification
-docs/DECISIONS.md       what was decided and why
+docs/DECISIONS.md       what was decided and why, plus the open questions (one copy)
+docs/FEATURES.md        the client-facing rundown of what the site does
+docs/AUDIT.md           scratchpad for an in-progress audit; cleared on commit
 prototype/              Vite + React UI prototype (deployed to Pages)
   src/ProjectTracker.jsx    the app: list, filters, table, pagination
   src/lib/                  pure logic, no React — this is what the tests cover
     domain.js               vocabularies, people, academic year, case numbers
     projects.js             filter, sort, paginate, staleness, validation
     exportCsv.js            the CSV handoff (§7), separated from the download
-    supabaseWrite.js        write guards for the future app — see AUDIT.md §6
-    *.test.js               224 assertions: logic, schema parity, components
-  src/components/           panels and primitives, with jsdom tests beside them
+    supabaseWrite.js        write guards for the future app — see DECISIONS.md
+    *.test.js               350 assertions: logic, schema parity, components
+  src/components/           panels, with jsdom tests beside them
+    primitives.jsx          controls with no domain knowledge (Field, Modal, DateInput)
+    NewPersonForm.jsx       "add someone to the roster", shared by the picker and roster
+  eslint.config.js          one rule: no unused imports or variables. Not a style guide.
 supabase/migrations/
   0001_schema.sql       tables, constraints, case-number generation, search, audit log
   0002_rls.sql          role helpers, auth linking, Row Level Security policies
@@ -118,7 +123,7 @@ Every assertion prints PASS or aborts the run.
 ./scripts/preflight.sh
 ```
 
-Five sections, in the order a mistake costs the most:
+Seven sections, in the order a mistake costs the most:
 
 1. **Secrets** — no `.env`, no JWT-shaped string, no database dump tracked by git, and
    no migration referencing the local-only test stub.
@@ -127,10 +132,17 @@ Five sections, in the order a mistake costs the most:
    these identifiers at length in order to explain why they are absent. This is the one
    rule the whole design rests on, so it is checked mechanically rather than remembered.
 3. **Prototype build** — `npm ci && npm run build`, the same thing Pages publishes.
-4. **Prototype tests** — 224 assertions over `prototype/src/lib` and `src/components`, including a parity
+4. **Lint** — no unused imports or variables. Deliberately one rule and not a style
+   guide: an unused import is how a deleted feature leaves a trace, and it is invisible
+   to everything else in the build.
+5. **Prototype tests** — 350 assertions over `prototype/src/lib` and `src/components`, including a parity
    check that reads `0001_schema.sql` and fails if any vocabulary has drifted from the
    interface.
-5. **Database suite** — stub → 0001 → 0002 → 0003 → behavioural assertions, including the new constraints.
+6. **User-facing documentation** — a push that changes the interface must also update
+   `docs/FEATURES.md`, the feature rundown the department is handed. A feature list
+   describing a button that no longer exists is worse than no feature list. A refactor
+   with no user-visible effect declares `[no-user-impact]` in its commit message.
+7. **Database suite** — stub → 0001 → 0002 → 0003 → behavioural assertions, including the new constraints.
 
 Add to the tests whenever you change behaviour. The list logic lives in
 `prototype/src/lib` as pure functions specifically so a scenario can be written for it
@@ -212,57 +224,82 @@ whoever wrote the code.
 
 ---
 
-## Decisions taken from the spec's open list
+## Why it is built this way
 
-Each is reversible.
+Every design decision, and the reasoning behind it, is in **[docs/DECISIONS.md](docs/DECISIONS.md)**
+— one entry per decision, dated. The list of questions still waiting on a human answer is
+the **Still open** section at the bottom of that same file, and it is the only copy. It
+used to be restated here, in `CLAUDE.md`, and in the audit, and the four copies had
+already drifted to different lengths.
 
-**`project_venues` ships in v1.** The table costs almost nothing in SQL, and the seed
-data contains the case it exists for: a poster accepted while the manuscript is still in
-revision. Collapsing that into one field loses information you cannot reconstruct.
-
-**Status vocabularies are lookup tables, not Postgres enums**, so "editable by admins
-without a code change" is literally true — a native enum would need `ALTER TYPE`, which
-is a migration. Everything genuinely fixed stays a native enum. Transitions are enforced
-nowhere; any status is settable from any other, and there is a test for moving backwards.
-
-**Type-specific fields live in four 1:1 child tables**, not nullable columns. It is the
-only way the fields the spec marks required — `diagnosis`, `why_unique`, `description` —
-can actually be `NOT NULL`. `project_export` flattens them back to one row per project
-for CSV.
-
-**Zero Postgres extensions.** `gen_random_uuid()` has been core since PG13 and email
-case-insensitivity is a normalizing trigger rather than `citext`, so the `pg_dump`
-restores on any stock Postgres. That is the handoff criterion.
-
-**Academic year is the July 1 start year.** `2026` means AY 2026–2027.
-`academic_year_of(date)` is the single source of truth.
+**The one thing to know before building the frontend:** Row Level Security denies a write
+by matching **zero rows**, not by raising an error. A blocked `UPDATE` returns success
+with nothing changed, and Supabase clients report that as an empty array rather than an
+exception. The app must treat "0 rows affected" as "not permitted" and say so, or users
+will watch edits silently evaporate. Column-level guards do raise properly; only RLS is
+quiet. `prototype/src/lib/supabaseWrite.js` exists so this cannot be got wrong.
 
 ---
 
-## One thing to know before building the frontend
+## Going to production
 
-Row Level Security denies a write by matching **zero rows**, not by raising an error. A
-blocked `UPDATE` returns success with nothing changed, and Supabase clients report that
-as an empty array rather than an exception. The app must treat "0 rows affected" as
-"not permitted" and say so, or users will watch edits silently evaporate. Column-level
-guards do raise properly; only RLS is quiet.
+### Installing the database
 
----
+Against a brand-new empty Postgres 16 / Supabase project, in this order:
 
-## Still open
+```
+supabase/migrations/0001_schema.sql
+supabase/migrations/0002_rls.sql
+supabase/migrations/0003_views.sql
+```
 
-1. **App registration from UMMC IT** for institutional SSO — the longest external lead
-   time. Start it even if magic link ships first; switching is Supabase config, not a
-   rewrite.
-2. **ACGME export fields.** `acgme_scholarly_activity` is a best guess and marked as
-   such. Ask the program coordinator what she assembles by hand today. It is a view
-   precisely so reshaping it is a one-file change.
-3. **Confirm the case-ID mapping location** — REDCap or an EMR patient list. Nothing in
-   the code depends on the answer, but the design is not complete until that mapping has
-   a documented home.
-4. **Whether UMMC IT wants a security review** for a de-identified, unbranded site on
-   external hosting.
-5. **Brand guide hex values.** Every color comes from the `brand` object at the top of
-   `ProjectTracker.jsx`; drop the real values in and the whole interface follows. No
-   logo, seal, or wordmark is used.
-6. **Initial admins, and a named successor.**
+**Do not run `test/00_supabase_stub.sql`.** It invents Supabase's `auth` schema and the
+`anon` / `authenticated` / `service_role` roles for local testing; against a real project
+it collides with the managed originals.
+
+**Do not run `test/01_tests.sql` against anything real.** It is destructive and creates
+fake people and projects.
+
+Then name the first admin — the one manual step:
+
+```sql
+update people set permission_level = 'admin', staff_position = 'research_fellow'
+where email = 'coordinator@umc.edu';
+```
+
+This works from the SQL editor because the privilege guards step aside when `auth.uid()`
+is null. Through the API it would be refused, which is the point.
+
+Set the allowed domains if `umc.edu` is not right:
+
+```sql
+update app_settings set value = '["umc.edu"]'::jsonb where key = 'allowed_email_domains';
+```
+
+### Launch checklist
+
+Tasks, not decisions — the open *questions* are in `docs/DECISIONS.md`.
+
+- [ ] Move the repo and hosting to a departmental owner. Longest-lead item, and nothing
+      in the code can fix it.
+- [ ] Turn on backups and **test a restore**. A backup nobody has restored is a hypothesis.
+- [ ] Put the `service_role` key in the host's secret store — never in the repo, never in
+      a `NEXT_PUBLIC_` variable. Preflight catches a committed JWT; it cannot catch a
+      leaked one.
+- [ ] Require CI to pass before merge. Today CI reports and nothing blocks; a branch
+      ruleset on `main` makes the gate real.
+- [ ] Add a LICENSE, or record the decision that default copyright is right.
+
+### Carry into the Next.js app
+
+- **Use `supabaseWrite.js` for every write.** See above; this is the single most likely
+  production bug in this codebase.
+- **CSV escaping is client-side today.** A server-side export needs the same
+  formula-injection neutralisation — a cell starting `=`, `+`, `-`, `@`, tab or CR gets a
+  leading apostrophe. `project_export` does not do it for you.
+- **The schema calls `notes` "Markdown-rendered".** The prototype renders plain text, so
+  there is no XSS today. The moment a real Markdown renderer is added, raw HTML must be
+  disabled or sanitised. This is the most likely way XSS enters this app.
+- **Do not insert a type-specific detail row until its required fields are filled.**
+  `diagnosis`, `why_unique` and each `description` are `NOT NULL`, and quick capture
+  deliberately collects none of them.
