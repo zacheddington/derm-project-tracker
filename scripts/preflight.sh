@@ -198,7 +198,34 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# 5. Prototype unit tests.
+# 5. Lint: unreachable code, not style.
+#
+# One rule that matters here — no unused variables or imports. A removed
+# feature leaves its icon import behind, and nothing else in the build
+# notices: the bundle still compiles, the tests still pass, and the next
+# person to read the file cannot tell residue from something
+# load-bearing. Three such leftovers survived a hand audit and were found
+# by this in about a second.
+# ---------------------------------------------------------------------
+head_ "Lint"
+
+if command -v npm >/dev/null 2>&1; then
+  lint_log=$(mktemp)
+  # `npm ci` already ran in the build section, so dependencies are present.
+  if (cd prototype && npm run lint) >"$lint_log" 2>&1; then
+    pass "no unused imports or variables"
+  else
+    fail "lint failed"
+    sed 's/\x1b\[[0-9;]*m//g' "$lint_log" | grep -E 'error|warning' | head -20 \
+      | while read -r l; do detail "$l"; done
+  fi
+  rm -f "$lint_log"
+else
+  skip "lint — npm not found"
+fi
+
+# ---------------------------------------------------------------------
+# 6. Prototype unit tests.
 #
 # The list behaviour — filtering, sorting, pagination, staleness
 # thresholds, save validation, case-ID issuing — lives in
@@ -224,7 +251,59 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# 6. Database suite: stub -> 0001 -> 0002 -> 0003 -> tests.
+# 7. The client-facing feature list stays true.
+#
+# docs/FEATURES.md is what the department is handed to understand what
+# this does. A feature list describing a button that no longer exists is
+# worse than no feature list, and documentation kept true by remembering
+# is documentation that drifts. So: if this push changes the interface,
+# it has to touch that file too.
+#
+# The escape hatch is deliberate and deliberately visible. A refactor
+# that genuinely changes nothing a user could notice says so in the
+# commit message with [no-user-impact], which leaves a reviewable record
+# of the claim rather than a silently skipped check.
+# ---------------------------------------------------------------------
+head_ "User-facing documentation"
+
+UI_PATHS='^prototype/src/(ProjectTracker\.jsx|components/|lib/(domain|projects|exportCsv)\.js)'
+
+base_ref=""
+for candidate in "@{upstream}" "origin/main"; do
+  if git rev-parse --verify --quiet "$candidate" >/dev/null 2>&1; then
+    base_ref="$candidate"; break
+  fi
+done
+
+if [ -z "$base_ref" ]; then
+  skip "features doc — no upstream branch to compare against yet"
+elif [ -z "$(git log --oneline "$base_ref"..HEAD 2>/dev/null)" ]; then
+  pass "features doc — nothing new to push"
+else
+  changed=$(git diff --name-only "$base_ref"...HEAD)
+  ui_changed=$(printf '%s\n' "$changed" | grep -E "$UI_PATHS" | grep -v '\.test\.' || true)
+  doc_changed=$(printf '%s\n' "$changed" | grep -Fx 'docs/FEATURES.md' || true)
+  # grep -c prints 0 and exits 1 when nothing matches, so keep the count
+  # and swallow the status; default to 0 if anything unexpected happens.
+  waived=$(git log "$base_ref"..HEAD --format='%B' | grep -Fc '[no-user-impact]' || true)
+  waived=${waived:-0}
+
+  if [ -z "$ui_changed" ]; then
+    pass "features doc — this push does not touch the interface"
+  elif [ -n "$doc_changed" ]; then
+    pass "features doc updated alongside the interface"
+  elif [ "$waived" -gt 0 ]; then
+    pass "features doc — waived by [no-user-impact] in a commit message"
+  else
+    fail "the interface changed but docs/FEATURES.md did not"
+    printf '%s\n' "$ui_changed" | head -8 | while read -r l; do detail "$l"; done
+    detail "Remove what is gone, correct what changed, add what is new, and move the date."
+    detail "If nothing a user could notice changed, say [no-user-impact] in the commit message."
+  fi
+fi
+
+# ---------------------------------------------------------------------
+# 8. Database suite: stub -> 0001 -> 0002 -> 0003 -> tests.
 #
 # Every assertion prints PASS or aborts the run, so ON_ERROR_STOP plus a
 # zero exit status is the whole verdict.
