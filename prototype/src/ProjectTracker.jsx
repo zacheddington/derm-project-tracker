@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
-  Search, Download, Archive, ChevronRight, ChevronLeft, AlertTriangle, Users,
-  ArrowUp, ArrowDown, ChevronsUpDown, Inbox, X, Clock,
+  Search, Download, Archive, ChevronRight, ChevronLeft, Users,
+  ArrowUp, ArrowDown, ChevronsUpDown, Inbox,
 } from "lucide-react";
 
 import {
   brand, WORK_STATUSES, SUBMISSION_STATUSES, TYPES,
-  label, ayLabel, academicYearOf, activePeople, sortedByName,
+  ayLabel, academicYearOf, activePeople, sortedByName,
   updatePerson, nextCaseId,
 } from "./lib/domain.js";
 import {
@@ -14,8 +14,7 @@ import {
   paginate, stalenessLabel, nextArchivedView,
 } from "./lib/projects.js";
 import { downloadCsv } from "./lib/exportCsv.js";
-import { Badge } from "./components/primitives.jsx";
-import { inputStyle } from "./components/primitives.jsx";
+import { Badge, inputStyle } from "./components/primitives.jsx";
 import QuickCapture from "./components/QuickCapture.jsx";
 import DetailPanel from "./components/DetailPanel.jsx";
 import RosterPanel from "./components/RosterPanel.jsx";
@@ -410,13 +409,17 @@ export default function ProjectTracker() {
 
   const setFilter = (patch) => setFilters((f) => ({ ...f, ...patch }));
 
-  const addPerson = (name, role, position = "") => {
+  /* The field names here are the schema's, not shorthand. Writing `role`
+     and `position` left the new person with no `staff_position` at all:
+     they vanished from the position filter and the attending picker, and
+     their roster row showed no role. Every reader uses these two names. */
+  const addPerson = (name, staffPosition, externalPosition = "") => {
     const person = {
       id: `p${Date.now()}`,
       display_name: name,
-      role,
+      staff_position: staffPosition,
       employment_end_date: null,
-      ...(position ? { position } : {}),
+      ...(externalPosition ? { external_position: externalPosition } : {}),
     };
     setPeople((prev) => [...prev, person]);
     return person;
@@ -424,18 +427,29 @@ export default function ProjectTracker() {
 
   const savePerson = (id, patch) => setPeople((prev) => updatePerson(prev, id, patch));
 
-  const createProject = ({ title, type, authors }) => {
+  /* `project_type` is the field every reader uses — the table badge, the
+     count tiles, the type filter, the CSV, sorting. Writing `type` here
+     produced a project the rest of the app could not see the type of. */
+  const createProject = ({ title, project_type, authors }) => {
     const p = {
       id: `x${Date.now()}`,
-      title, type, authors,
+      title, project_type, authors,
       work_status: "idea",
       purpose: "", notes: "", next_action: "", next_action_due_date: "",
-      irb_status: type === "case_report" ? "not_applicable" : "not_yet_submitted",
+      /* Every new project starts "Not applicable", whatever its type.
+         Guessing "Not yet submitted" for the three non-case-report types
+         asserted that an IRB submission is expected, which is wrong for
+         most QA/QI work and for every literature review — and it did not
+         match `projects.irb_status`, whose column default is
+         'not_applicable'. A status nobody chose should be the one that
+         claims the least. */
+      irb_status: "not_applicable",
       academic_year: CURRENT_AY,
+      created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       archived_at: null,
       details:
-        type === "case_report"
+        project_type === "case_report"
           ? {
               case_number: nextCaseId(projects, CURRENT_AY),
               diagnosis: "", why_unique: "", attending_id: "",
@@ -490,11 +504,28 @@ export default function ProjectTracker() {
     };
   }, [projects, filters.archived]);
 
-  /* A tile is a filter. Clicking "Research" narrows the table to research
-     projects; clicking it again clears it, because the way out should be
-     the control you came in through. "Active" is the all-types tile. */
+  /* A tile is a RESET, not another filter stacked on the ones already set.
+
+     Clicking "Research" means "show me the research projects" — not "show
+     me the research projects that also happen to match the author, status
+     and year I narrowed to four minutes ago". Anyone three filters deep
+     who clicks a tile and gets two rows has to work out which of the
+     other controls is still holding things back. So the tile clears the
+     search box and every dropdown, and clicking it again clears the type
+     too: the way out is the control you came in through.
+
+     `archived` is the one thing deliberately kept. The tiles count within
+     the current archive scope, so resetting it here would change the
+     numbers on the tiles at the moment you clicked one — the tile would
+     say 6 and hand you 4. That number matching the rows is an invariant
+     worth more than the consistency of clearing everything. */
   const toggleTypeTile = (code) => {
-    setFilter({ type: code === "all" || filters.type === code ? "all" : code });
+    const clearing = code === "all" || filters.type === code;
+    setFilters({
+      ...EMPTY_FILTERS,
+      archived: filters.archived,
+      type: clearing ? "all" : code,
+    });
     setPage(1);
   };
 
@@ -510,7 +541,6 @@ export default function ProjectTracker() {
   // The rows the filters left behind, in the order they are displayed.
   const exportCsv = () => downloadCsv(matched, people);
 
-  const selectStyle = { border: `1px solid ${brand.border}`, background: brand.surface, color: brand.navy };
   const open = projects.find((p) => p.id === openId);
   const onSort = (column) => setSort((s) => nextSort(s, column));
 
@@ -592,21 +622,21 @@ export default function ProjectTracker() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <select value={filters.type} onChange={(e) => setFilter({ type: e.target.value })} className="rounded-md px-2.5 py-1.5 text-xs" style={selectStyle} aria-label="Filter by type">
+            <select value={filters.type} onChange={(e) => setFilter({ type: e.target.value })} className="rounded-md px-2.5 py-1.5 text-xs" style={inputStyle} aria-label="Filter by type">
               <option value="all">All types</option>
               {sortedTypes.map((t) => <option key={t.code} value={t.code}>{t.label}</option>)}
             </select>
-            <select value={filters.status} onChange={(e) => setFilter({ status: e.target.value })} className="rounded-md px-2.5 py-1.5 text-xs" style={selectStyle} aria-label="Filter by work status">
+            <select value={filters.status} onChange={(e) => setFilter({ status: e.target.value })} className="rounded-md px-2.5 py-1.5 text-xs" style={inputStyle} aria-label="Filter by work status">
               <option value="all">Any status</option>
               {WORK_STATUSES.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
             </select>
-            <select value={filters.author} onChange={(e) => setFilter({ author: e.target.value })} className="rounded-md px-2.5 py-1.5 text-xs" style={selectStyle} aria-label="Filter by author">
+            <select value={filters.author} onChange={(e) => setFilter({ author: e.target.value })} className="rounded-md px-2.5 py-1.5 text-xs" style={inputStyle} aria-label="Filter by author">
               <option value="all">Any author</option>
               {sortedByName(activePeople(people, now())).map((p) => (
                 <option key={p.id} value={p.id}>{p.display_name}</option>
               ))}
             </select>
-            <select value={filters.year} onChange={(e) => setFilter({ year: e.target.value })} className="rounded-md px-2.5 py-1.5 text-xs" style={selectStyle} aria-label="Filter by academic year">
+            <select value={filters.year} onChange={(e) => setFilter({ year: e.target.value })} className="rounded-md px-2.5 py-1.5 text-xs" style={inputStyle} aria-label="Filter by academic year">
               <option value="all">All years</option>
               {years.map((y) => <option key={y} value={String(y)}>{ayLabel(y)}</option>)}
             </select>
@@ -617,7 +647,7 @@ export default function ProjectTracker() {
               onClick={() => setFilter({ archived: nextArchivedView(filters.archived) })}
               aria-label={`Showing ${filters.archived} projects — click to change`}
               className="rounded-md px-2.5 py-1.5 text-xs inline-flex items-center gap-1.5"
-              style={filters.archived === "active" ? selectStyle : { background: brand.navy, color: "#fff" }}
+              style={filters.archived === "active" ? inputStyle : { background: brand.navy, color: "#fff" }}
             >
               <Archive size={12} />
               {ARCHIVED_VIEWS.find((v) => v.code === filters.archived)?.label ?? "Active"}
@@ -628,12 +658,12 @@ export default function ProjectTracker() {
                 <button
                   onClick={() => setFilters(EMPTY_FILTERS)}
                   className="rounded-md px-2.5 py-1.5 text-xs"
-                  style={selectStyle}
+                  style={inputStyle}
                 >
                   Clear filters
                 </button>
               )}
-              <button onClick={exportCsv} className="rounded-md px-2.5 py-1.5 text-xs inline-flex items-center gap-1.5" style={selectStyle}>
+              <button onClick={exportCsv} className="rounded-md px-2.5 py-1.5 text-xs inline-flex items-center gap-1.5" style={inputStyle}>
                 <Download size={12} /> Export CSV
               </button>
             </div>
@@ -746,7 +776,7 @@ export default function ProjectTracker() {
                     onClick={() => setPage((n) => n - 1)}
                     disabled={view.page === 1}
                     className="rounded-md px-2 py-1.5 text-xs inline-flex items-center gap-1 disabled:opacity-40"
-                    style={selectStyle}
+                    style={inputStyle}
                   >
                     <ChevronLeft size={13} /> Previous
                   </button>
@@ -757,7 +787,7 @@ export default function ProjectTracker() {
                     onClick={() => setPage((n) => n + 1)}
                     disabled={view.page === view.pages}
                     className="rounded-md px-2 py-1.5 text-xs inline-flex items-center gap-1 disabled:opacity-40"
-                    style={selectStyle}
+                    style={inputStyle}
                   >
                     Next <ChevronRight size={13} />
                   </button>

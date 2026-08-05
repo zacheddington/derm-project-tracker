@@ -471,6 +471,46 @@ describe("saving requires an author", () => {
   });
 });
 
+/* The schema declares `venue_name text not null check (length(btrim(...)) > 0)`.
+   Anything the form lets you save that the database will refuse is a
+   defect the person typing only discovers in production. */
+describe("a venue has to be named", () => {
+  const withVenues = (venues) => project({ venues });
+  const venue = (over = {}) => ({
+    id: "v1", venue_type: "poster", venue_name: "AAD Annual",
+    submission_status: "not_yet_submitted", other_venue_description: "",
+    target_date: "", notes: "", ...over,
+  });
+
+  it("accepts a named venue", () => {
+    expect(validateProject(withVenues([venue()]), NOW)).toEqual([]);
+  });
+
+  it("refuses a venue with an empty name", () => {
+    const errors = validateProject(withVenues([venue({ venue_name: "" })]), NOW);
+    expect(errors.map((e) => e.field)).toEqual(["venue_name"]);
+    expect(errors[0].message).toMatch(/needs a name/i);
+  });
+
+  it("refuses a venue named only with whitespace", () => {
+    // btrim in the check constraint means "   " is as empty as "".
+    expect(validateProject(withVenues([venue({ venue_name: "   " })]), NOW)).toHaveLength(1);
+  });
+
+  it("counts them when more than one is unnamed", () => {
+    const errors = validateProject(
+      withVenues([venue({ venue_name: "" }), venue({ id: "v2", venue_name: "" })]), NOW
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toMatch(/2 venues/);
+  });
+
+  it("says nothing about a project with no venues at all", () => {
+    // Most projects have none, and that is not a problem to report.
+    expect(validateProject(withVenues([]), NOW)).toEqual([]);
+  });
+});
+
 describe("year seen cannot be in the future", () => {
   it("caps at the current calendar year", () => {
     expect(maxYearSeen(NOW)).toBe(2026);

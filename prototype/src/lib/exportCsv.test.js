@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { projectsToCsv, escapeCsv, neutralizeFormula, venueLabel, CSV_COLUMNS } from "./exportCsv.js";
+import { projectsToCsv, escapeCsv, neutralizeFormula, venueLabel, CSV_COLUMNS, CSV_HEADERS } from "./exportCsv.js";
 
 const people = [
   { id: "p1", display_name: "Rae LeBlanc", staff_position: "resident" },
@@ -103,9 +103,30 @@ describe("spreadsheet formula injection", () => {
 });
 
 describe("the exported sheet mirrors the table", () => {
-  it("leads with the documented header row", () => {
+  it("leads with a header row a person can read", () => {
+    // The file is opened in Excel by the program coordinator. The field
+    // keys are the schema's words and stay the internal order; row 1 is
+    // what someone who did not write the schema sees.
     const [header] = projectsToCsv([], people).split("\n");
-    expect(parseRow(header)).toEqual(CSV_COLUMNS);
+    expect(parseRow(header)).toEqual([
+      "Title", "Case number", "Next action",
+      "Type", "Work status", "Authors", "Venues", "Last updated",
+    ]);
+  });
+
+  it("gives every exported column a header label", () => {
+    // A column added to CSV_COLUMNS without a label would write "undefined"
+    // into row 1 of a document nobody re-reads before sending it on.
+    for (const key of CSV_COLUMNS) {
+      expect(CSV_HEADERS[key]).toBeTruthy();
+    }
+    expect(Object.keys(CSV_HEADERS).sort()).toEqual([...CSV_COLUMNS].sort());
+  });
+
+  it("keeps the header aligned with the row beneath it", () => {
+    const csv = projectsToCsv([project({ id: "a" })], people);
+    const [header, row] = csv.split("\n");
+    expect(parseRow(header)).toHaveLength(parseRow(row).length);
   });
 
   it("exports the columns on screen and nothing else", () => {

@@ -121,21 +121,55 @@ const SQL_FILES = [
   "../../../test/01_tests.sql",
 ];
 
+/* Why not `\b`.
+
+   A renamed name rarely survives on its own — it survives buried in a
+   longer snake_case identifier, which is exactly where `\b` cannot see
+   it. `_` is a word character to a regex, so `\bassign_case_id\b` does
+   NOT match `case_report_assign_case_id`, and `\bcase_id_counters\b`
+   does NOT match `case_id_counters_read`. Both of those were real: a
+   trigger and a policy kept the pre-rename spelling for a full day with
+   this test green over the top of them.
+
+   So the boundary here is "not a letter or digit", which treats `_` as a
+   separator and finds a stale segment anywhere in an identifier. It still
+   refuses to fire on a name that merely starts the same way: `last_seq`
+   is followed by `u` inside `last_sequence_number`, so the correct new
+   name is not reported as the old one. */
+const staleRe = (name) => new RegExp(`(?<![A-Za-z0-9])${name}(?![A-Za-z0-9])`);
+
+const sqlBody = (relative) =>
+  readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8")
+    // Comments legitimately use these words in prose — "the admin
+    // merge-duplicates action" is English, not a column.
+    .replace(/--.*$/gm, "");
+
 describe("no SQL file still refers to a renamed identifier", () => {
   it.each(SQL_FILES)("%s is free of pre-rename names", (relative) => {
-    const body = readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8")
-      // Comments legitimately use these words in prose — "the admin
-      // merge-duplicates action" is English, not a column.
-      .replace(/--.*$/gm, "");
-    const stale = RENAMED_AWAY.filter((name) => new RegExp(`\\b${name}\\b`).test(body));
+    const body = sqlBody(relative);
+    const stale = RENAMED_AWAY.filter((name) => staleRe(name).test(body));
     expect(stale).toEqual([]);
   });
 
   it("catches a bare `case_id` that should now be `case_number`", () => {
     for (const relative of SQL_FILES) {
-      const body = readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8")
-        .replace(/--.*$/gm, "");
-      expect(body).not.toMatch(/\bcase_id\b/);
+      expect(sqlBody(relative)).not.toMatch(staleRe("case_id"));
     }
+  });
+
+  /* The guard's own self-test.
+
+     If this goes quiet, the checks above have stopped checking. Each case
+     is a real line that was live in this repo, or the near miss that
+     makes a laxer rule unusable. */
+  it("sees a stale name buried inside a longer identifier", () => {
+    expect(staleRe("assign_case_id").test("create trigger case_report_assign_case_id")).toBe(true);
+    expect(staleRe("case_id_counters").test("create policy case_id_counters_read on x")).toBe(true);
+    expect(staleRe("case_id").test("create trigger case_report_assign_case_id")).toBe(true);
+  });
+
+  it("does not mistake a correct name for the old one it replaced", () => {
+    expect(staleRe("last_seq").test("last_sequence_number integer not null")).toBe(false);
+    expect(staleRe("case_id").test("cr.case_number, cr.diagnosis")).toBe(false);
   });
 });

@@ -9,7 +9,7 @@ import {
   hasChanges, describeDateProblem,
 } from "../lib/projects.js";
 import {
-  Badge, Button, DateInput, Field, Modal, Select, TextArea, TextInput,
+  Badge, Button, ChoiceButtons, DateInput, Field, Modal, Select, TextArea, TextInput,
   IdentifierNotice, UnsavedChangesDialog,
 } from "./primitives.jsx";
 import AuthorPicker from "./AuthorPicker.jsx";
@@ -250,21 +250,7 @@ export default function DetailPanel({
               </Field>
 
               <Field group label="Type" hint="Set the wrong one on capture? Change it here — nothing is lost, and a case number once issued is kept.">
-                <div className="flex flex-wrap gap-1.5">
-                  {TYPES.map((t) => (
-                    <button
-                      key={t.code}
-                      type="button"
-                      onClick={() => setType(t.code)}
-                      className="rounded-md px-3 py-1.5 text-sm"
-                      style={draft.project_type === t.code
-                        ? { background: brand.navy, color: "#fff" }
-                        : { background: brand.surface, color: brand.slate, border: `1px solid ${brand.border}` }}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
+                <ChoiceButtons options={TYPES} value={draft.project_type} onChange={setType} />
               </Field>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
@@ -281,6 +267,17 @@ export default function DetailPanel({
               <Field group label="Author(s)">
                 <AuthorPicker people={people} selected={draft.authors} onChange={(o) => set({ authors: o })}
                               onAddPerson={onAddPerson} now={now()} />
+              </Field>
+
+              {/* Spec §5: the goal, the impact, "why this matters". The panel
+                  had stopped offering it while the column, the search index,
+                  the export view and the search box's own placeholder all
+                  still referred to it — so the app invited you to search a
+                  field it gave you no way to write. */}
+              <Field label="Purpose" hint="The goal, or why this matters. Optional.">
+                <TextArea rows={2} value={draft.purpose || ""}
+                          onChange={(e) => set({ purpose: e.target.value })} />
+                <IdentifierNotice text={draft.purpose} />
               </Field>
 
               {draft.project_type === "case_report" && (

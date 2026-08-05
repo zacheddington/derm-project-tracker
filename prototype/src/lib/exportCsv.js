@@ -29,6 +29,25 @@ export const CSV_COLUMNS = [
   "project_type", "work_status", "authors", "venues", "updated_at",
 ];
 
+/* What the coordinator actually sees in row 1.
+
+   The field keys above are the schema's words, which is right for the
+   code and wrong for the document: this file is opened in Excel by
+   someone who did not write the schema, and `project_type,work_status`
+   is the column header equivalent of showing them a database. The keys
+   stay as the internal order — every test indexes by them — and this is
+   the label written to the file. */
+export const CSV_HEADERS = {
+  title: "Title",
+  case_number: "Case number",
+  next_action: "Next action",
+  project_type: "Type",
+  work_status: "Work status",
+  authors: "Authors",
+  venues: "Venues",
+  updated_at: "Last updated",
+};
+
 /* Spreadsheet formula injection.
 
    Excel, LibreOffice and Google Sheets treat a cell beginning with =, +,
@@ -80,17 +99,40 @@ export function projectsToCsv(projects, people) {
     p.updated_at.slice(0, 10),
   ]);
 
-  return [CSV_COLUMNS.join(","), ...rows.map((r) => r.map(escapeCsv).join(","))].join("\n");
+  const header = CSV_COLUMNS.map((c) => CSV_HEADERS[c]);
+  return [header.map(escapeCsv).join(","), ...rows.map((r) => r.map(escapeCsv).join(","))].join("\n");
+}
+
+/* The day it was exported, in the exporter's own timezone.
+
+   `toISOString().slice(0,10)` is UTC, so anyone west of Greenwich
+   exporting after early evening gets a file stamped tomorrow. Nobody
+   reading "derm-projects-2026-08-05.csv" on the evening of the 4th
+   assumes a timezone; they assume the export is wrong. */
+function localDay(now) {
+  const d = new Date(now);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 /* Browser-only. Kept apart from projectsToCsv so the text can be tested
-   without a DOM. */
+   without a DOM.
+
+   The anchor is put in the document and the URL is revoked on a later
+   tick on purpose. A detached anchor's programmatic .click() is ignored
+   by Firefox, and revoking synchronously after click can cancel a
+   download that has not started reading the blob yet. Chrome tolerates
+   both, which is exactly why it survives until someone demonstrates it
+   on a different browser. */
 export function downloadCsv(projects, people, now = Date.now()) {
   const csv = projectsToCsv(projects, people);
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
   const a = document.createElement("a");
   a.href = url;
-  a.download = `derm-projects-${new Date(now).toISOString().slice(0, 10)}.csv`;
+  a.download = `derm-projects-${localDay(now)}.csv`;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }

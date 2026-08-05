@@ -10,7 +10,6 @@ import {
   sortRoster,
   projectLoad,
   pluralProjects,
-  renamePerson,
   updatePerson,
   personSubtitle,
   needsExternalPosition,
@@ -240,7 +239,7 @@ describe("renaming an author", () => {
   ];
 
   it("changes the name and nothing else, so project links survive", () => {
-    const next = renamePerson(people, "p2", "Tomi Albrecht");
+    const next = updatePerson(people, "p2", { display_name: "Tomi Albrecht" });
     expect(next.find((p) => p.id === "p2").display_name).toBe("Tomi Albrecht");
     // The id is what projects reference. If this ever changes, every
     // association in the system silently detaches.
@@ -249,13 +248,13 @@ describe("renaming an author", () => {
   });
 
   it("leaves everyone else untouched", () => {
-    const next = renamePerson(people, "p2", "Tomi Albrecht");
+    const next = updatePerson(people, "p2", { display_name: "Tomi Albrecht" });
     expect(next.find((p) => p.id === "p3")).toEqual(people[1]);
   });
 
-  it("refuses a blank name rather than erasing someone", () => {
-    expect(renamePerson(people, "p2", "   ")).toEqual(people);
-  });
+  /* Refusing a blank name is the form's job, not this function's — the
+     roster's Save is disabled while the box is empty, and
+     RosterPanel.test.jsx asserts that. */
 
   it("trims whitespace on update", () => {
     const next = updatePerson(people, "p2", { display_name: "  Tomi Albrecht  " });

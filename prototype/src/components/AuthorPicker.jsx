@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Plus, X, Check } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import {
-  brand, STAFF_POSITIONS, activePeople, personSubtitle, needsExternalPosition, sortedByName,
+  brand, activePeople, personSubtitle, sortedByName,
 } from "../lib/domain.js";
-import { Button, Select, TextInput } from "./primitives.jsx";
+import { TextInput } from "./primitives.jsx";
+import NewPersonForm from "./NewPersonForm.jsx";
 
 /* ---------------------------------------------------------------------
    Author picker.
@@ -18,9 +19,7 @@ import { Button, Select, TextInput } from "./primitives.jsx";
 export default function AuthorPicker({ people, selected, onChange, onAddPerson, now = Date.now() }) {
   const [q, setQ] = useState("");
   const [adding, setAdding] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newStaffPosition, setNewStaffPosition] = useState("resident");
-  const [newExternalPosition, setNewExternalPosition] = useState("");
+  const [seedName, setSeedName] = useState("");
   const [highlight, setHighlight] = useState(0);
 
   const matches = useMemo(() => {
@@ -58,12 +57,13 @@ export default function AuthorPicker({ people, selected, onChange, onAddPerson, 
     }
   };
 
-  const commitNew = () => {
-    const name = newName.trim();
-    if (!name) return;
-    const person = onAddPerson(name, newStaffPosition, newExternalPosition.trim());
+  /* A person added here is added to the project as well as to the
+     roster — you opened this to name an author, not to do admin. */
+  const commitNew = (name, staffPosition, externalPosition) => {
+    const person = onAddPerson(name, staffPosition, externalPosition);
     onChange([...selected, person.id]);
-    setNewName(""); setNewExternalPosition(""); setAdding(false); setQ("");
+    setAdding(false);
+    setQ("");
   };
 
   return (
@@ -129,7 +129,7 @@ export default function AuthorPicker({ people, selected, onChange, onAddPerson, 
               ))}
               <button
                 type="button"
-                onClick={() => { setNewName(q.trim()); setAdding(true); }}
+                onClick={() => { setSeedName(q.trim()); setAdding(true); }}
                 className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-1.5"
                 style={{ color: brand.navy, borderTop: `1px solid ${brand.border}` }}
               >
@@ -139,26 +139,12 @@ export default function AuthorPicker({ people, selected, onChange, onAddPerson, 
           )}
         </>
       ) : (
-        <div className="rounded-md p-3" style={{ border: `1px solid ${brand.border}`, background: brand.bg }}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
-            <TextInput value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Full name" aria-label="Full name" />
-            <Select options={STAFF_POSITIONS} value={newStaffPosition} onChange={(e) => setNewStaffPosition(e.target.value)} aria-label="Role" />
-          </div>
-          {needsExternalPosition(newStaffPosition) && (
-            <div className="mb-2">
-              <TextInput
-                value={newExternalPosition}
-                onChange={(e) => setNewExternalPosition(e.target.value)}
-                placeholder="Their position or role — e.g. Pathologist, Baptist Health"
-                aria-label="Position or role"
-              />
-            </div>
-          )}
-          <div className="flex gap-2">
-            <Button onClick={commitNew}><Check size={14} /> Add to roster</Button>
-            <Button variant="ghost" onClick={() => setAdding(false)}>Cancel</Button>
-          </div>
-        </div>
+        <NewPersonForm
+          initialName={seedName}
+          submitLabel="Add to roster"
+          onCommit={commitNew}
+          onCancel={() => setAdding(false)}
+        />
       )}
     </div>
   );

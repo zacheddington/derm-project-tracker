@@ -149,7 +149,12 @@ export function DateInput({ value, onChange, onStateChange, now = Date.now(), ..
       onChange={handle}
       aria-invalid={bad || undefined}
       className="w-full rounded-md px-3 py-2 text-sm outline-none focus:ring-2"
-      style={{ ...inputStyle, ...(bad ? { borderColor: brand.alertText } : {}) }}
+      /* One `border` shorthand, never shorthand plus `borderColor`.
+         Layering the longhand over `inputStyle`'s shorthand made React
+         warn, and the two can disagree when the flag flips back: the
+         longhand is removed while the shorthand is not re-applied, so a
+         box could keep its red edge after the date was corrected. */
+      style={{ ...inputStyle, border: `1px solid ${bad ? brand.alertText : brand.border}` }}
     />
   );
 }
@@ -187,6 +192,41 @@ export function UnsavedChangesDialog({
   );
 }
 
+/* A row of buttons where exactly one is chosen.
+
+   This was the project-type picker, written out twice — once in the
+   capture form and once in the detail panel — as the same markup with
+   the same two style objects. The only thing that differed was which
+   value counted as selected, and that is a prop.
+
+   `aria-pressed` is what tells a screen reader which one is chosen.
+   Without it the selection exists only as a background colour, which is
+   exactly the kind of thing §10 of the spec means by "accessibility will
+   be asked about".
+
+   Always goes inside a `Field group`: several controls cannot share one
+   implicit <label> without every one of them inheriting its whole text. */
+export function ChoiceButtons({ options, value, onChange }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map((o) => (
+        <button
+          key={o.code}
+          type="button"
+          onClick={() => onChange(o.code)}
+          aria-pressed={value === o.code}
+          className="rounded-md px-3 py-1.5 text-sm"
+          style={value === o.code
+            ? { background: brand.navy, color: "#fff" }
+            : { background: brand.surface, color: brand.slate, border: `1px solid ${brand.border}` }}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Select({ options, ...props }) {
   return (
     <select
@@ -211,7 +251,13 @@ export function TextArea(props) {
   );
 }
 
-export function Button({ variant = "primary", children, ...props }) {
+/* `type` defaults to "button", not to the HTML default of "submit".
+
+   A bare <button> inside a <form> submits it. That makes Cancel — and
+   every other secondary action that happens to sit in a form — save the
+   thing the person was trying to abandon. Forms opt in explicitly with
+   `type="submit"` on the one button that means it. */
+export function Button({ variant = "primary", type = "button", children, ...props }) {
   const base =
     "inline-flex items-center gap-1.5 rounded-md text-sm font-medium px-3.5 py-2 transition-colors focus:outline-none focus:ring-2 disabled:opacity-50";
   const styles = {
@@ -220,7 +266,7 @@ export function Button({ variant = "primary", children, ...props }) {
     ghost: { background: "transparent", color: brand.slate },
     danger: { background: brand.alertText, color: "#fff" },
   }[variant];
-  return <button {...props} className={base} style={styles}>{children}</button>;
+  return <button {...props} type={type} className={base} style={styles}>{children}</button>;
 }
 
 /* --------------------------------- modal -------------------------------- */

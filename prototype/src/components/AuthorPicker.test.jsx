@@ -196,14 +196,6 @@ describe("quick capture", () => {
 
   const open = async (user) => user.click(screen.getByRole("button", { name: /Jot down a new project idea/ }));
 
-  it("shows no elapsed-time counter", async () => {
-    const { user } = captureSetup();
-    await open(user);
-    // A stopwatch on someone recording a case report was the wrong thing
-    // to show them; it measured a design target, not their work.
-    expect(screen.queryByText(/^\d+s$/)).toBeNull();
-  });
-
   it("starts with no author rather than guessing one", async () => {
     const { user } = captureSetup();
     await open(user);
@@ -237,9 +229,13 @@ describe("quick capture", () => {
     await user.click(screen.getByRole("button", { name: "Save project" }));
 
     expect(onCreate).toHaveBeenCalledTimes(1);
+    /* `project_type`, not `type`. These two assertions used to name the
+       field `type`, which is what QuickCapture sent and what nothing else
+       in the app reads — so the test agreed with the bug and kept it
+       alive. The name here has to be the name the app stores. */
     expect(onCreate.mock.calls[0][0]).toMatchObject({
-      title: "A new idea",          // trimmed
-      type: "case_report",          // the default
+      title: "A new idea",              // trimmed
+      project_type: "case_report",      // the default
       authors: ["p3"],
     });
   });
@@ -253,7 +249,7 @@ describe("quick capture", () => {
     await user.click(screen.getByRole("button", { name: /Priya Raman/ }));
     await user.click(screen.getByRole("button", { name: "Save project" }));
 
-    expect(onCreate.mock.calls[0][0].type).toBe("review");
+    expect(onCreate.mock.calls[0][0].project_type).toBe("review");
   });
 
   it("warns about a possible identifier without blocking the save", async () => {

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { Plus, X } from "lucide-react";
 import { brand, TYPES } from "../lib/domain.js";
 import { validateProject } from "../lib/projects.js";
-import { Button, Field, Modal, TextInput, IdentifierNotice } from "./primitives.jsx";
+import { Button, ChoiceButtons, Field, Modal, TextInput, IdentifierNotice } from "./primitives.jsx";
 import AuthorPicker from "./AuthorPicker.jsx";
 
 /* ---------------------------------------------------------------------
@@ -37,11 +37,15 @@ export default function QuickCapture({ people, onCreate, onAddPerson, now = Date
     setTitle(""); setType("case_report"); setAuthors([]); setErrors(null); setOpen(false);
   };
 
+  /* The draft and the payload both use `project_type`, because that is
+     what validateProject reads and what the app stores. A local shorthand
+     here meant the type-specific validation never ran and the created
+     project had no type the rest of the app could see. */
   const save = () => {
-    const draft = { title, type, authors: authors, details: {} };
+    const draft = { title, project_type: type, authors, details: {} };
     const found = validateProject(draft, now());
     if (found.length) { setErrors(found); return; }
-    onCreate({ title: title.trim(), type, authors: authors });
+    onCreate({ title: title.trim(), project_type: type, authors });
     reset();
   };
 
@@ -87,23 +91,7 @@ export default function QuickCapture({ people, onCreate, onAddPerson, now = Date
       </Field>
 
       <Field group label="Type" hint="Pick the closest one. It can be changed later without recreating the project.">
-        <div className="flex flex-wrap gap-1.5">
-          {TYPES.map((t) => (
-            <button
-              key={t.code}
-              type="button"
-              onClick={() => setType(t.code)}
-              className="rounded-md px-3 py-1.5 text-sm"
-              style={
-                type === t.code
-                  ? { background: brand.navy, color: "#fff" }
-                  : { background: brand.surface, color: brand.slate, border: `1px solid ${brand.border}` }
-              }
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <ChoiceButtons options={TYPES} value={type} onChange={setType} />
       </Field>
 
       <Field group label="Author(s)">

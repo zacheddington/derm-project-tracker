@@ -26,16 +26,6 @@ beforeEach(() => {
   render(<ProjectTracker />);
 });
 
-describe("the staleness banners are gone", () => {
-  it("shows no untouched-for notice at all", () => {
-    expect(screen.queryByText(/not been touched/i)).toBeNull();
-  });
-
-  it("no longer offers an age filter", () => {
-    expect(screen.queryByLabelText(/how long since the last update/i)).toBeNull();
-  });
-});
-
 describe("the count tiles filter the table", () => {
   it("starts unfiltered, with the Active tile selected", () => {
     expect(tile("Active")).toHaveAttribute("aria-pressed", "true");
@@ -224,6 +214,199 @@ describe("the filter dropdowns are ordered", () => {
     expect(statuses[0]).toBe("Idea");
     expect(statuses[statuses.length - 1]).toBe("Abandoned");
     expect(statuses.indexOf("Complete")).toBeLessThan(statuses.indexOf("On hold"));
+  });
+});
+
+/* Creating things through the app, not through the helpers.
+
+   The unit tests prove validateProject refuses a project with no author
+   and nextCaseId issues the right number. Neither says anything about
+   what the app WRITES when the button is clicked — and that is where two
+   field names had drifted from the schema, leaving a captured project
+   with no type the table could read and a new person with no position.
+   Both suites were green throughout. These assert the record itself. */
+describe("quick capture produces a project the rest of the app can read", () => {
+  const capture = async (title, typeLabel) => {
+    await user.click(screen.getByRole("button", { name: /Jot down a new project idea/ }));
+    await user.type(screen.getByPlaceholderText(/Disseminated gonococcal rash/), title);
+    await user.click(screen.getByRole("button", { name: typeLabel }));
+    await user.type(screen.getByLabelText("Search for an author"), "Brodell");
+    await user.keyboard("{Enter}");
+    await user.click(screen.getByRole("button", { name: "Save project" }));
+    // Creating opens the detail panel; close it to get back to the table.
+    const panel = screen.queryByRole("dialog");
+    if (panel) await user.click(within(panel).getByRole("button", { name: "Close panel" }));
+  };
+
+  const rowFor = (title) =>
+    [...document.querySelectorAll("tbody tr")].find((r) => r.textContent.includes(title));
+
+  it("shows the type it was captured with in the Type column", async () => {
+    await capture("Nailfold capillaroscopy yield", "Research");
+    expect(rowFor("Nailfold capillaroscopy yield").children[1]).toHaveTextContent("Research");
+  });
+
+  it("counts on the matching type tile", async () => {
+    const before = Number(tile("Research").textContent.match(/\d+/)[0]);
+    await capture("Nailfold capillaroscopy yield", "Research");
+    expect(Number(tile("Research").textContent.match(/\d+/)[0])).toBe(before + 1);
+  });
+
+  it("can be found by the type filter it was given", async () => {
+    await capture("Nailfold capillaroscopy yield", "Review");
+    await user.click(tile("Review"));
+    expect(rowFor("Nailfold capillaroscopy yield")).toBeTruthy();
+  });
+
+  it("issues a case number when captured as a case report", async () => {
+    await capture("Erythema migrans in an atypical distribution", "Case report");
+    expect(rowFor("Erythema migrans in an atypical distribution").textContent).toMatch(/CR-\d{4}-\d{3}/);
+  });
+
+  /* The panel that opens on creation has to show the type you picked as
+     the selected button, not just render four unselected ones. The table
+     badge being right is a different assertion and was already passing
+     while this was broken on the deployed build. */
+  it.each(["Case report", "QA/QI", "Research", "Review"])(
+    "opens the new project with %s already selected",
+    async (typeLabel) => {
+      await user.click(screen.getByRole("button", { name: /Jot down a new project idea/ }));
+      await user.type(screen.getByPlaceholderText(/Disseminated gonococcal rash/), `A new ${typeLabel}`);
+      await user.click(within(screen.getByRole("button", { name: "Save project" }).closest("div.rounded-lg"))
+        .getByRole("button", { name: typeLabel }));
+      await user.type(screen.getByLabelText("Search for an author"), "Brodell");
+      await user.keyboard("{Enter}");
+      await user.click(screen.getByRole("button", { name: "Save project" }));
+
+      const panel = screen.getByRole("dialog");
+      const typeGroup = within(panel).getByRole("group", { name: "Type" });
+      expect(within(typeGroup).getByRole("button", { name: typeLabel })).toHaveAttribute("aria-pressed", "true");
+      // and exactly one is selected, not none and not several
+      const pressed = within(typeGroup).getAllByRole("button")
+        .filter((b) => b.getAttribute("aria-pressed") === "true");
+      expect(pressed).toHaveLength(1);
+    }
+  );
+
+  /* IRB status is "Not applicable" for every new project regardless of
+     type. Defaulting the three non-case-report types to "Not yet
+     submitted" asserted that a submission is expected, which is wrong for
+     most QA/QI work and every review — and it disagreed with the column
+     default in 0001_schema.sql. */
+  it.each(["Case report", "QA/QI", "Research", "Review"])(
+    "starts a new %s with IRB status Not applicable",
+    async (typeLabel) => {
+      await user.click(screen.getByRole("button", { name: /Jot down a new project idea/ }));
+      await user.type(screen.getByPlaceholderText(/Disseminated gonococcal rash/), `IRB check ${typeLabel}`);
+      await user.click(within(screen.getByRole("button", { name: "Save project" }).closest("div.rounded-lg"))
+        .getByRole("button", { name: typeLabel }));
+      await user.type(screen.getByLabelText("Search for an author"), "Brodell");
+      await user.keyboard("{Enter}");
+      await user.click(screen.getByRole("button", { name: "Save project" }));
+
+      const panel = screen.getByRole("dialog");
+      expect(within(panel).getByLabelText("IRB status")).toHaveValue("not_applicable");
+    }
+  );
+});
+
+/* Clicking a type tile is a reset, not another filter on the pile.
+
+   Three filters deep, clicking "Research" and getting two rows leaves you
+   working out which of the other controls is still holding things back.
+   The archive scope is deliberately NOT reset — see the comment on
+   toggleTypeTile. */
+describe("a type tile clears the other filters", () => {
+  const search = () => screen.getByLabelText("Search projects");
+
+  const narrowEverything = async () => {
+    await user.selectOptions(screen.getByLabelText("Filter by work status"), "idea");
+    await user.selectOptions(screen.getByLabelText("Filter by author"), "p1");
+    await user.type(search(), "alopecia");
+  };
+
+  it("resets the search box", async () => {
+    await narrowEverything();
+    await user.click(tile("Research"));
+    expect(search()).toHaveValue("");
+  });
+
+  it("resets the status, author and year dropdowns", async () => {
+    await narrowEverything();
+    await user.selectOptions(screen.getByLabelText("Filter by academic year"), "2025");
+    await user.click(tile("Research"));
+
+    expect(screen.getByLabelText("Filter by work status")).toHaveValue("all");
+    expect(screen.getByLabelText("Filter by author")).toHaveValue("all");
+    expect(screen.getByLabelText("Filter by academic year")).toHaveValue("all");
+  });
+
+  it("shows every project of that type, not the intersection", async () => {
+    const expected = Number(tile("Research").textContent.match(/\d+/)[0]);
+    await narrowEverything();
+    await user.click(tile("Research"));
+    expect(rowTitles()).toHaveLength(expected);
+  });
+
+  it("keeps the archive scope, so the tile number still matches the rows", async () => {
+    // Resetting this would change the tiles' own counts at the moment you
+    // clicked one: the tile would say 6 and hand you 4.
+    await user.click(screen.getByRole("button", { name: /Showing .* projects/ }));  // archived
+    const shown = Number(tile("Case report").textContent.match(/\d+/)[0]);
+    await user.click(tile("Case report"));
+
+    expect(screen.getByRole("button", { name: /Showing archived projects/ })).toBeInTheDocument();
+    expect(rowTitles()).toHaveLength(shown);
+  });
+
+  it("still clears the type when the selected tile is clicked again", async () => {
+    const before = rowTitles().length;
+    await user.click(tile("Research"));
+    await user.click(tile("Research"));
+    expect(tile("Research")).toHaveAttribute("aria-pressed", "false");
+    expect(rowTitles()).toHaveLength(before);
+  });
+});
+
+describe("someone added to the roster inline is a complete person", () => {
+  const addAttending = async (roster, name) => {
+    await user.click(within(roster).getByRole("button", { name: /Add someone/ }));
+    await user.type(within(roster).getByLabelText("Full name"), name);
+    await user.selectOptions(within(roster).getByLabelText("Role"), "attending");
+    await user.click(within(roster).getByRole("button", { name: /^Add$/ }));
+  };
+
+  const openRoster = async () => {
+    await user.click(screen.getByRole("button", { name: "Roster" }));
+    return screen.getByRole("dialog", { name: "Roster" });
+  };
+
+  it("shows the position they were given", async () => {
+    const roster = await openRoster();
+    await addAttending(roster, "Dana Whitfield");
+    const row = within(roster).getAllByRole("listitem")
+      .find((r) => r.textContent.includes("Dana Whitfield"));
+    expect(row).toHaveTextContent("Attending");
+  });
+
+  it("appears under that position in the roster filter", async () => {
+    const roster = await openRoster();
+    await addAttending(roster, "Dana Whitfield");
+    await user.selectOptions(within(roster).getByLabelText(/Filter the roster by position/), "attending");
+    const names = within(roster).getAllByRole("listitem").map((r) => r.textContent);
+    expect(names.some((n) => n.includes("Dana Whitfield"))).toBe(true);
+  });
+
+  it("becomes selectable as a case report's attending", async () => {
+    const roster = await openRoster();
+    await addAttending(roster, "Dana Whitfield");
+    await user.click(within(roster).getByRole("button", { name: "Close" }));
+
+    await user.click(tile("Case report"));
+    await user.click(document.querySelectorAll("tbody tr")[0]);
+    const panel = screen.getByRole("dialog");
+    const picker = within(panel).getByRole("group", { name: "Attending" });
+    expect(within(picker).getByRole("option", { name: "Dana Whitfield" })).toBeInTheDocument();
   });
 });
 

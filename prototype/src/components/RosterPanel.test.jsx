@@ -360,6 +360,86 @@ describe("saving a staff edit with the keyboard", () => {
     expect(onSavePerson).toHaveBeenCalledTimes(1);
     expect(onSavePerson.mock.calls[0][1].display_name).toBe("Tomi Albrecht");
   });
+
+  /* Enter used to work in the name box and nowhere else, because the
+     handler was attached to that one input. Typing an end date and
+     pressing Enter did nothing at all — the same key doing two different
+     things in one row of boxes, and no way to tell which you were in. */
+  it("saves on Enter in the end date field", async () => {
+    const { onSavePerson, user } = setup();
+    const row = rows().find((r) => r.textContent.includes("Tomi Okafor"));
+    await user.click(within(row).getByRole("button", { name: "Edit Tomi Okafor" }));
+
+    await user.type(screen.getByLabelText("End date"), "06/30/2027{Enter}");
+
+    expect(onSavePerson).toHaveBeenCalledTimes(1);
+    expect(onSavePerson.mock.calls[0][1].employment_end_date).toBe("2027-06-30");
+  });
+
+  it("saves on Enter in the free-text position field", async () => {
+    const { onSavePerson, user } = setup();
+    const row = rows().find((r) => r.textContent.includes("Ben Iwu"));
+    await user.click(within(row).getByRole("button", { name: "Edit Ben Iwu" }));
+
+    const position = screen.getByPlaceholderText(/Pathologist, Baptist Health/);
+    await user.clear(position);
+    await user.type(position, "Dermatopathologist{Enter}");
+
+    expect(onSavePerson).toHaveBeenCalledTimes(1);
+    expect(onSavePerson.mock.calls[0][1].external_position).toBe("Dermatopathologist");
+  });
+
+  it("does not save on Enter while the date is unusable", async () => {
+    // A half-typed date stores nothing, so submitting on it would silently
+    // discard what was typed. The inline message already says why.
+    const { onSavePerson, user } = setup();
+    const row = rows().find((r) => r.textContent.includes("Tomi Okafor"));
+    await user.click(within(row).getByRole("button", { name: "Edit Tomi Okafor" }));
+
+    await user.type(screen.getByLabelText("End date"), "06/30{Enter}");
+
+    expect(onSavePerson).not.toHaveBeenCalled();
+    expect(screen.getByText(/only partly filled in/i)).toBeInTheDocument();
+  });
+
+  /* The date box marked itself invalid by layering `borderColor` over the
+     `border` shorthand it inherits. React warns about that, and the two
+     can disagree when the flag clears — the longhand is removed while the
+     shorthand is not re-applied, leaving a corrected date wearing a red
+     edge. One shorthand, recomputed each render. */
+  it("returns the date box to a normal border once the date is fixed", async () => {
+    const { user } = setup();
+    const row = rows().find((r) => r.textContent.includes("Tomi Okafor"));
+    await user.click(within(row).getByRole("button", { name: "Edit Tomi Okafor" }));
+    const box = screen.getByLabelText("End date");
+
+    await user.type(box, "0630");
+    expect(box).toHaveAttribute("aria-invalid", "true");
+    const bad = box.style.border;
+
+    await user.type(box, "2027");
+    expect(box).not.toHaveAttribute("aria-invalid");
+    // The border is rewritten, not left holding the alert colour.
+    expect(box.style.border).not.toBe(bad);
+    expect(box.style.border).toMatch(/^1px solid /);
+    expect(box.style.borderColor.toLowerCase()).not.toContain("138, 43, 43");
+  });
+
+  it("Cancel does not submit the form it sits in", async () => {
+    // A bare <button> inside a <form> defaults to type="submit", so Cancel
+    // would have saved the edit it was meant to abandon.
+    const { onSavePerson, user } = setup();
+    const row = rows().find((r) => r.textContent.includes("Tomi Okafor"));
+    await user.click(within(row).getByRole("button", { name: "Edit Tomi Okafor" }));
+
+    const nameBox = screen.getByDisplayValue("Tomi Okafor");
+    await user.clear(nameBox);
+    await user.type(nameBox, "Should Not Save");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+
+    expect(onSavePerson).not.toHaveBeenCalled();
+  });
 });
 
 describe("editing someone", () => {

@@ -3,9 +3,9 @@
    validation. Pure functions, no React, no clock of their own.
    --------------------------------------------------------------------- */
 
-import { WORK_STATUSES, TYPES, label, nextCaseId, academicYearOf } from "./domain.js";
+import { WORK_STATUSES, TYPES, label, nextCaseId, academicYearOf, collator } from "./domain.js";
 
-export const DAY = 864e5;
+const DAY = 864e5;
 export const PAGE_SIZE = 20;
 
 /* ------------------------------- dates --------------------------------- */
@@ -30,7 +30,7 @@ export const PAGE_SIZE = 20;
 export const DATE_MIN_YEAR = 1990;
 export const dateMaxYear = (now = Date.now()) => new Date(now).getFullYear() + 10;
 
-export function dateOutOfRange(iso, now = Date.now()) {
+function dateOutOfRange(iso, now = Date.now()) {
   if (!iso) return false;
   const year = Number(String(iso).slice(0, 4));
   if (!Number.isFinite(year)) return true;
@@ -167,7 +167,7 @@ export const EMPTY_FILTERS = {
    them would make the box worse at the one job it is best at. The cost is
    that a hit can land on a row without showing why; that is a fair trade
    for being able to find "the gliptin one" from memory. */
-export function searchableText(project, nameOf = (id) => id) {
+function searchableText(project, nameOf = (id) => id) {
   return [
     // Visible columns
     project.title,
@@ -207,16 +207,13 @@ export function filterProjects(projects, filters = {}, options = {}) {
 
 /* ------------------------------- sorting ------------------------------- */
 
-/* Column identifiers double as table header keys. */
-export const SORT_COLUMNS = ["title", "type", "status", "authors", "venues", "updated"];
-
 /* Which way a column sorts on its FIRST click.
 
    Ascending is right for names and categories: A before B is what anyone
    expects from a first click. Dates are the exception — nobody opens a
    project list wanting the oldest thing first, so Updated leads with the
    most recent. */
-export const FIRST_SORT_DIRECTION = { updated: "desc" };
+const FIRST_SORT_DIRECTION = { updated: "desc" };
 const firstDirection = (column) => FIRST_SORT_DIRECTION[column] ?? "asc";
 
 /* Tri-state: first click sorts, second reverses, third returns to the
@@ -229,9 +226,6 @@ export function nextSort(current, column) {
   return null;
 }
 
-/* One shared collator. `String.prototype.localeCompare` builds a fresh
-   one on every call, which dominates the profile once the list is large. */
-const collator = new Intl.Collator(undefined, { sensitivity: "base" });
 const cmpString = (a, b) => collator.compare(a, b);
 
 function sortValue(project, column, nameOf) {
@@ -366,6 +360,22 @@ export function validateProject(draft, now = Date.now()) {
     errors.push({
       field: "authors",
       message: "A project needs at least one author. Add someone before saving.",
+    });
+  }
+  /* A venue with no name is a row the schema refuses:
+     `venue_name text not null check (length(btrim(venue_name)) > 0)`.
+     Letting it save here means the prototype accepts what the database
+     will reject, and the person who typed it finds out from an error in
+     production rather than from the form in front of them. An unnamed
+     venue is also unreadable on the table — a bare status badge attached
+     to nothing. */
+  const unnamedVenues = (draft.venues ?? []).filter((v) => !v.venue_name || !v.venue_name.trim());
+  if (unnamedVenues.length > 0) {
+    errors.push({
+      field: "venue_name",
+      message: unnamedVenues.length === 1
+        ? "A venue needs a name. Name it, or remove it."
+        : `${unnamedVenues.length} venues have no name. Name them, or remove them.`,
     });
   }
   if (draft.project_type === "case_report") {

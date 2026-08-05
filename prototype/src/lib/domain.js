@@ -20,12 +20,12 @@ export const brand = {
   accentBg: "#E7F2ED",
   accentText: "#0E4A37",
   neutralBg: "#EEF1F5",
-  // Staleness banners. Amber is a nudge, red is a reproach.
+  // Amber: the prototype banner and the identifier tripwire — a caution,
+  // never a refusal.
   warnBg: "#FDF6E3",
   warnBorder: "#E8D9A8",
   warnText: "#6B5300",
-  alertBg: "#FBEDED",
-  alertBorder: "#EFC9C9",
+  // Red: destructive buttons, the danger modals, and an invalid date box.
   alertText: "#8A2B2B",
 };
 
@@ -83,10 +83,10 @@ export const CONSENT = [
   { code: "not_applicable", label: "Not applicable" },
 ];
 
-/* The `research_fellow` CODE is the value in the Postgres
-   `person_role` enum, so it stays. Only the label changed to "Research
-   fellow" — renaming the enum value is a migration, and this is a UI
-   wording change. See the note in README.md. */
+/* These codes are the values of the Postgres `staff_position` enum, and
+   `schema-parity.test.js` fails if the two lists drift. Labels are free
+   to differ from codes — "Research fellow" for `research_fellow` — but a
+   code is the database's word and changing one is a schema edit. */
 export const STAFF_POSITIONS = [
   { code: "resident", label: "Resident" },
   { code: "fellow", label: "Fellow" },
@@ -98,7 +98,7 @@ export const STAFF_POSITIONS = [
 
 /* Roles that need a free-text position, because the vocabulary cannot
    usefully enumerate what an outside collaborator does. */
-export const POSITIONS_NEEDING_DESCRIPTION = ["external_collaborator"];
+const POSITIONS_NEEDING_DESCRIPTION = ["external_collaborator"];
 
 export const needsExternalPosition = (role) => POSITIONS_NEEDING_DESCRIPTION.includes(role);
 
@@ -129,8 +129,11 @@ export function activePeople(people, now = Date.now()) {
   return people.filter((p) => isPersonActive(p, now));
 }
 
-/* One shared collator for every name comparison in the app. */
-const nameCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+/* One collator for every string comparison in the app, exported so that
+   projects.js sorts titles and author names by the same rules the roster
+   sorts by. `String.prototype.localeCompare` builds a fresh collator on
+   every call, which dominates the profile once a list is large. */
+export const collator = new Intl.Collator(undefined, { sensitivity: "base" });
 
 /* Alphabetical by the name as displayed.
 
@@ -139,7 +142,7 @@ const nameCollator = new Intl.Collator(undefined, { sensitivity: "base" });
    screen. If the department would rather have surname order, the fix is
    to store given and family names separately and display them that way —
    not to sort by something invisible. */
-export const byDisplayName = (a, b) => nameCollator.compare(a.display_name, b.display_name);
+const byDisplayName = (a, b) => collator.compare(a.display_name, b.display_name);
 
 export const sortedByName = (people) => [...people].sort(byDisplayName);
 
@@ -178,28 +181,38 @@ export const ROSTER_SORTS = [
   { code: "load", label: "Least work first" },
 ];
 
+/* Decorate, sort, undecorate — the same rule as sortProjects.
+
+   `projectLoad` walks the whole project list, and a comparator runs
+   O(n log n) times, so calling it inside one scanned every project twice
+   per comparison: roughly 2·m·n·log n. Computing each person's load once
+   makes it m·n, and the sort then compares two integers. At the
+   department's size either is instant; at a few hundred people and a few
+   thousand projects the difference is a visibly janky panel. */
 export function sortRoster(people, mode = "name", projects = []) {
   if (mode !== "load") return sortedByName(people);
-  return [...people].sort((a, b) => {
-    const la = projectLoad(a.id, projects);
-    const lb = projectLoad(b.id, projects);
+
+  const decorated = people.map((p) => ({ p, load: projectLoad(p.id, projects) }));
+
+  decorated.sort((a, b) => {
     // Active work first, because that is what "busy" means today.
-    if (la.active !== lb.active) return la.active - lb.active;
+    if (a.load.active !== b.load.active) return a.load.active - b.load.active;
     // Then archived, so somebody who has finished things ranks above
     // somebody who has never had any.
-    if (la.archived !== lb.archived) return la.archived - lb.archived;
-    return byDisplayName(a, b);
+    if (a.load.archived !== b.load.archived) return a.load.archived - b.load.archived;
+    return byDisplayName(a.p, b.p);
   });
+
+  return decorated.map((d) => d.p);
 }
 
-/* Names change. The link is the id, never the name, so a rename is just
-   an edit to one row and every association survives it. */
-export function renamePerson(people, id, nextName) {
-  const name = (nextName ?? "").trim();
-  if (!name) return people;
-  return people.map((p) => (p.id === id ? { ...p, display_name: name } : p));
-}
+/* Every edit to a person, including a rename.
 
+   Names change. The link is the id, never the name, so a rename is just
+   an edit to one row and every association survives it — which is why
+   there is no separate rename function: it was a second way to do this
+   one's job, and the app only ever called this one. Refusing a blank name
+   belongs to the form that collects it, not here. */
 export function updatePerson(people, id, patch) {
   return people.map((p) => {
     if (p.id !== id) return p;
@@ -259,7 +272,7 @@ export function nextCaseId(projects, ay) {
 /* ------------------------- identifier tripwire ------------------------- */
 /* Client-side only, advisory only. Never blocks a save — it just asks. */
 
-export const IDENTIFIER_PATTERNS = [
+const IDENTIFIER_PATTERNS = [
   { re: /\b\d{6,12}\b/, note: "a long number that could be an MRN" },
   { re: /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/, note: "a full date, which may be a date of service" },
   { re: /\bMRN\b/i, note: "the letters MRN" },

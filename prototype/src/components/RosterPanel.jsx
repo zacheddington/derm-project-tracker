@@ -5,9 +5,10 @@ import {
   filterRoster, sortRoster, projectLoad, pluralProjects, ROSTER_SORTS,
 } from "../lib/domain.js";
 import {
-  Button, DateInput, Field, Select, TextInput, UnsavedChangesDialog,
+  Button, DateInput, Field, Select, TextInput, UnsavedChangesDialog, inputStyle,
 } from "./primitives.jsx";
 import { hasChanges, describeDateProblem } from "../lib/projects.js";
+import NewPersonForm from "./NewPersonForm.jsx";
 
 /* ---------------------------------------------------------------------
    The roster.
@@ -53,6 +54,25 @@ function PersonRow({ person, load, onSave, onShowProjects, onEditStateChange, no
 
   const attemptCancel = () => (dirty ? setConfirmExit(true) : setEditing(false));
   const discard = () => { setConfirmExit(false); setEditing(false); setDraft(person); };
+
+  /* Enter saves, from any field.
+
+     The <form> is there for semantics and for the Save button, but the
+     Enter behaviour is handled explicitly rather than left to the
+     browser's implicit-submission rules, which are quietly conditional —
+     they depend on the number of fields, the presence of a submit button,
+     and the input type. Handling it here means one rule for every box
+     instead of a rule that holds until someone adds a second input.
+
+     preventDefault stops the browser also submitting, so `commit` runs
+     once. Buttons are left alone: Enter on a focused button is already a
+     click, and intercepting it would break Cancel. */
+  const onKeyDown = (e) => {
+    if (e.key !== "Enter") return;
+    if (e.target.tagName === "BUTTON" || e.target.tagName === "TEXTAREA") return;
+    e.preventDefault();
+    commit();
+  };
 
   /* Tell the panel whether this row is holding unsaved work, and how to
      resolve it, so closing the whole roster can ask the same question
@@ -136,53 +156,59 @@ function PersonRow({ person, load, onSave, onShowProjects, onEditStateChange, no
 
   return (
     <div role="listitem" className="px-3 py-3" style={{ borderBottom: `1px solid ${brand.border}`, background: brand.bg }}>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3">
-        <Field label="Name">
-          <TextInput
-            value={draft.display_name}
-            autoFocus
-            onChange={(e) => setDraft({ ...draft, display_name: e.target.value })}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commit(); } }}
-          />
-        </Field>
-        <Field label="Role">
-          <Select
-            options={STAFF_POSITIONS}
-            value={draft.staff_position}
-            onChange={(e) => setDraft({ ...draft, staff_position: e.target.value })}
-          />
-        </Field>
-      </div>
-      {needsExternalPosition(draft.staff_position) && (
-        <Field label="Position" hint="Free text — what they actually do, and where.">
-          <TextInput
-            value={draft.external_position ?? ""}
-            onChange={(e) => setDraft({ ...draft, external_position: e.target.value })}
-            placeholder="e.g. Pathologist, Baptist Health"
-          />
-        </Field>
-      )}
-      <Field
-        label="End date"
-        hint="Leave blank while they are still here. Setting it removes them from pickers; every project they authored keeps their name."
-      >
-        <DateInput
-          value={draft.employment_end_date ?? ""}
-          onChange={(iso) => setDraft({ ...draft, employment_end_date: iso })}
-          onStateChange={(st) => setDateProblem(st.problem)}
-          now={now}
-          aria-label="End date"
-        />
-        {dateProblem && (
-          <span className="block text-xs mt-1" style={{ color: brand.alertText }}>
-            {describeDateProblem(dateProblem, "End date", now)}
-          </span>
+      {/* Enter used to be bolted to the name box alone, so it saved from
+          the name and did nothing from the position or the end date —
+          the same key doing two different things in one row of boxes.
+          See onKeyDown above; `commit` refuses a blank name or an
+          unusable date either way. */}
+      <form onSubmit={(e) => { e.preventDefault(); commit(); }} onKeyDown={onKeyDown}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3">
+          <Field label="Name">
+            <TextInput
+              value={draft.display_name}
+              autoFocus
+              onChange={(e) => setDraft({ ...draft, display_name: e.target.value })}
+            />
+          </Field>
+          <Field label="Role">
+            <Select
+              options={STAFF_POSITIONS}
+              value={draft.staff_position}
+              onChange={(e) => setDraft({ ...draft, staff_position: e.target.value })}
+            />
+          </Field>
+        </div>
+        {needsExternalPosition(draft.staff_position) && (
+          <Field label="Position" hint="Free text — what they actually do, and where.">
+            <TextInput
+              value={draft.external_position ?? ""}
+              onChange={(e) => setDraft({ ...draft, external_position: e.target.value })}
+              placeholder="e.g. Pathologist, Baptist Health"
+            />
+          </Field>
         )}
-      </Field>
-      <div className="flex gap-2">
-        <Button onClick={commit} disabled={!canSave}><Check size={14} /> Save</Button>
-        <Button variant="ghost" onClick={attemptCancel}>Cancel</Button>
-      </div>
+        <Field
+          label="End date"
+          hint="Leave blank while they are still here. Setting it removes them from pickers; every project they authored keeps their name."
+        >
+          <DateInput
+            value={draft.employment_end_date ?? ""}
+            onChange={(iso) => setDraft({ ...draft, employment_end_date: iso })}
+            onStateChange={(st) => setDateProblem(st.problem)}
+            now={now}
+            aria-label="End date"
+          />
+          {dateProblem && (
+            <span className="block text-xs mt-1" style={{ color: brand.alertText }}>
+              {describeDateProblem(dateProblem, "End date", now)}
+            </span>
+          )}
+        </Field>
+        <div className="flex gap-2">
+          <Button type="submit" disabled={!canSave}><Check size={14} /> Save</Button>
+          <Button variant="ghost" onClick={attemptCancel}>Cancel</Button>
+        </div>
+      </form>
 
       {confirmExit && (
         <UnsavedChangesDialog
@@ -218,9 +244,10 @@ export default function RosterPanel({
       return next;
     });
   const [adding, setAdding] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newStaffPosition, setNewStaffPosition] = useState("resident");
-  const [newExternalPosition, setNewExternalPosition] = useState("");
+  /* What the "Add someone" form is holding, if anything: `{ name, commit,
+     discard }` while a name has been typed and not committed, null
+     otherwise. The form reports it, the same way a row mid-edit does. */
+  const [newPerson, setNewPerson] = useState(null);
 
   const loadFor = (id) => projectLoad(id, projects);
   const shown = sortRoster(
@@ -230,39 +257,33 @@ export default function RosterPanel({
   );
   const formerCount = people.filter((p) => !isPersonActive(p, now)).length;
 
-  const commitNew = () => {
-    const name = newName.trim();
-    if (!name) return;
-    onAddPerson(name, newStaffPosition, newExternalPosition.trim());
-    setNewName(""); setNewExternalPosition(""); setAdding(false);
-  };
-
-  const discardNew = () => {
-    setNewName(""); setNewExternalPosition(""); setAdding(false);
+  const commitNew = (name, staffPosition, externalPosition) => {
+    onAddPerson(name, staffPosition, externalPosition);
+    setAdding(false);
   };
 
   /* Anything in flight: a row mid-edit, or a name typed into the add form
      and not yet committed. */
   const pending = Object.values(pendingEdits);
-  const addPending = adding && Boolean(newName.trim());
+  const addPending = adding && Boolean(newPerson);
   const unsaved = pending.length > 0 || addPending;
 
   const describeUnsaved = () => {
     if (pending.length === 1) return pending[0].name;
     if (pending.length > 1) return `${pending.length} people`;
-    return `the new entry for ${newName.trim()}`;
+    return `the new entry for ${newPerson.name}`;
   };
 
   const saveEverything = () => {
     pending.forEach((p) => p.save());
-    if (addPending) commitNew();
+    if (addPending) newPerson.commit();
     setConfirmExit(false);
     onClose();
   };
 
   const discardEverything = () => {
     pending.forEach((p) => p.discard());
-    if (addPending) discardNew();
+    if (addPending) newPerson.discard();
     setConfirmExit(false);
     onClose();
   };
@@ -327,7 +348,7 @@ export default function RosterPanel({
               placeholder={showFormer ? "Search former staff…" : "Search by name or position…"}
               aria-label="Search the roster"
               className="w-full rounded-md pl-9 pr-3 py-2 text-sm outline-none focus:ring-2"
-              style={{ border: `1px solid ${brand.border}`, background: brand.surface, color: brand.navy }}
+              style={inputStyle}
             />
           </div>
 
@@ -341,7 +362,7 @@ export default function RosterPanel({
               onChange={(e) => setPosition(e.target.value)}
               aria-label="Filter the roster by position"
               className="rounded-md px-2.5 py-1.5 text-xs"
-              style={{ border: `1px solid ${brand.border}`, background: brand.surface, color: brand.navy }}
+              style={inputStyle}
             >
               <option value="all">All positions</option>
               {STAFF_POSITIONS.map((r) => (
@@ -353,7 +374,7 @@ export default function RosterPanel({
               onChange={(e) => setSortBy(e.target.value)}
               aria-label="Sort the roster"
               className="rounded-md px-2.5 py-1.5 text-xs"
-              style={{ border: `1px solid ${brand.border}`, background: brand.surface, color: brand.navy }}
+              style={inputStyle}
             >
               {ROSTER_SORTS.map((o) => (
                 <option key={o.code} value={o.code}>{o.label}</option>
@@ -367,26 +388,14 @@ export default function RosterPanel({
           </div>
 
           {adding && (
-            <div className="rounded-md p-3 mb-3" style={{ border: `1px solid ${brand.border}`, background: brand.bg }}>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
-                <TextInput value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Full name" aria-label="Full name" />
-                <Select options={STAFF_POSITIONS} value={newStaffPosition} onChange={(e) => setNewStaffPosition(e.target.value)} aria-label="Role" />
-              </div>
-              {needsExternalPosition(newStaffPosition) && (
-                <div className="mb-2">
-                  <TextInput
-                    value={newExternalPosition}
-                    onChange={(e) => setNewExternalPosition(e.target.value)}
-                    placeholder="Their position or role — e.g. Pathologist, Baptist Health"
-                    aria-label="Position or role"
-                  />
-                </div>
-              )}
-              <div className="flex gap-2">
-                <Button onClick={commitNew} disabled={!newName.trim()}><Check size={14} /> Add</Button>
-                <Button variant="ghost" onClick={() => setAdding(false)}>Cancel</Button>
-              </div>
-            </div>
+            <NewPersonForm
+              className="mb-3"
+              submitLabel="Add"
+              disableWhenEmpty
+              onCommit={commitNew}
+              onCancel={() => setAdding(false)}
+              onPendingChange={setNewPerson}
+            />
           )}
 
           <div role="list" aria-label={showFormer ? "Former staff" : "Current staff"}

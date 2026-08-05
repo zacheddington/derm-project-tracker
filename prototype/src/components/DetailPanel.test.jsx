@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import DetailPanel from "./DetailPanel.jsx";
@@ -349,11 +349,22 @@ describe("saving from the unsaved-changes dialog", () => {
   });
 });
 
-describe("the fields that were moved or removed", () => {
-  it("no longer asks for a purpose", () => {
-    setup();
-    expect(screen.queryByText(/^Purpose$/)).toBeNull();
-    expect(screen.queryByText(/why this matters/i)).toBeNull();
+describe("where the project-level fields sit", () => {
+  /* Purpose is spec §5 and a real column, it is indexed for search, it is
+     in the export view, and the search box offers it by name. The panel
+     had stopped rendering it, so the only purposes in the system were the
+     ones the seed data shipped with. The test that used to live here
+     asserted its absence, which kept the gap in place. */
+  it("asks for a purpose, and saves what is typed", async () => {
+    const { onSave, user } = setup();
+    await user.type(screen.getByLabelText(/^Purpose/), "Because the referral volume is unsafe.");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onSave.mock.calls[0][0].purpose).toBe("Because the referral volume is unsafe.");
+  });
+
+  it("shows an existing purpose rather than a blank box", () => {
+    setup({ purpose: "Atypical sequence of findings." });
+    expect(screen.getByLabelText(/^Purpose/)).toHaveValue("Atypical sequence of findings.");
   });
 
   it("still keeps next action and its due date", () => {
