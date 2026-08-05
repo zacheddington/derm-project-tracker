@@ -4,6 +4,10 @@ import {
   stalenessLabel,
   filterProjects,
   nextSort,
+  nextArchivedView,
+  maskDateInput,
+  displayDateToIso,
+  isoToDisplayDate,
   sortProjects,
   paginate,
   pageCount,
@@ -62,7 +66,7 @@ describe("filtering", () => {
 
   it("hides archived projects by default and shows only those when asked", () => {
     expect(ids({})).toEqual(["a", "b", "c"]);
-    expect(ids({ archived: true })).toEqual(["d"]);
+    expect(ids({ archived: "archived" })).toEqual(["d"]);
   });
 
   it("filters by type, status, author and year", () => {
@@ -117,6 +121,83 @@ describe("filtering", () => {
   it("combines filters", () => {
     expect(ids({ author: "p3", type: "research" })).toEqual(["c"]);
     expect(ids({ author: "p1", type: "research" })).toEqual([]);
+  });
+});
+
+describe("the active / archived / both view", () => {
+  const projects = [
+    project({ id: "live", archived_at: null }),
+    project({ id: "gone", archived_at: daysAgo(5) }),
+  ];
+  const ids = (archived) => filterProjects(projects, { archived }, { nameOf }).map((p) => p.id);
+
+  it("defaults to active only", () => {
+    expect(filterProjects(projects, {}, { nameOf }).map((p) => p.id)).toEqual(["live"]);
+  });
+
+  it("shows each set on its own, and both together", () => {
+    expect(ids("active")).toEqual(["live"]);
+    expect(ids("archived")).toEqual(["gone"]);
+    // The reason this state exists: "everything this person has done" was
+    // unaskable with a two-way toggle.
+    expect(ids("both")).toEqual(["live", "gone"]);
+  });
+
+  it("cycles active → archived → both → active", () => {
+    expect(nextArchivedView("active")).toBe("archived");
+    expect(nextArchivedView("archived")).toBe("both");
+    expect(nextArchivedView("both")).toBe("active");
+  });
+
+  it("starts the cycle from active when handed something unexpected", () => {
+    expect(nextArchivedView(undefined)).toBe("active");
+  });
+});
+
+describe("typing a date", () => {
+  it("puts the slashes in as you go", () => {
+    expect(maskDateInput("0")).toBe("0");
+    expect(maskDateInput("08")).toBe("08");
+    expect(maskDateInput("080")).toBe("08/0");
+    expect(maskDateInput("0804")).toBe("08/04");
+    expect(maskDateInput("08042026")).toBe("08/04/2026");
+  });
+
+  it("ignores anything that is not a digit, so retyping over slashes works", () => {
+    expect(maskDateInput("08/04/2026")).toBe("08/04/2026");
+    expect(maskDateInput("08-04-2026")).toBe("08/04/2026");
+    expect(maskDateInput("abc08x04y2026")).toBe("08/04/2026");
+  });
+
+  it("stops at eight digits rather than growing forever", () => {
+    expect(maskDateInput("0804202699")).toBe("08/04/2026");
+  });
+
+  it("stores ISO, which is what the database wants and what sorts", () => {
+    expect(displayDateToIso("08/04/2026")).toBe("2026-08-04");
+  });
+
+  it("treats a half-typed date as empty rather than as a wrong date", () => {
+    // Mid-keystroke is not an error state; it just has nothing to commit.
+    expect(displayDateToIso("08")).toBe("");
+    expect(displayDateToIso("08/04")).toBe("");
+    expect(displayDateToIso("")).toBe("");
+  });
+
+  it("rejects dates that do not exist", () => {
+    expect(displayDateToIso("02/31/2026")).toBe("");
+    expect(displayDateToIso("13/01/2026")).toBe("");
+    expect(displayDateToIso("00/10/2026")).toBe("");
+  });
+
+  it("round-trips ISO to display and back", () => {
+    expect(isoToDisplayDate("2026-08-04")).toBe("08/04/2026");
+    expect(displayDateToIso(isoToDisplayDate("2026-08-04"))).toBe("2026-08-04");
+  });
+
+  it("shows nothing for a missing date", () => {
+    expect(isoToDisplayDate("")).toBe("");
+    expect(isoToDisplayDate(null)).toBe("");
   });
 });
 

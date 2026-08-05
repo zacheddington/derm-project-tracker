@@ -116,10 +116,131 @@ describe("searching the roster", () => {
   });
 });
 
+describe("finding the right people", () => {
+  it("narrows to a position", async () => {
+    const { user } = setup();
+    await user.selectOptions(screen.getByLabelText("Filter the roster by position"), "attending");
+    expect(shownNames()).toHaveLength(1);
+    expect(shownNames()[0]).toContain("Priya Raman");
+  });
+
+  it("puts the people with nothing on at the top when sorted by load", async () => {
+    const { user } = setup();
+    await user.selectOptions(screen.getByLabelText("Sort the roster"), "load");
+    // Ben Iwu has none; Rae has two.
+    expect(shownNames()[0]).toContain("Ben Iwu");
+    expect(shownNames()[shownNames().length - 1]).toContain("Rae LeBlanc");
+  });
+
+  it("is alphabetical by default", () => {
+    setup();
+    const names = shownNames().map((t) => t.split(/Resident|Attending|External/)[0].trim());
+    expect([...names]).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+  });
+
+  it("combines a position with the sort", async () => {
+    const { user } = setup();
+    await user.selectOptions(screen.getByLabelText("Filter the roster by position"), "resident");
+    await user.selectOptions(screen.getByLabelText("Sort the roster"), "load");
+    expect(shownNames()).toHaveLength(2);
+    expect(shownNames()[0]).toContain("Tomi Okafor");   // 1 active
+    expect(shownNames()[1]).toContain("Rae LeBlanc");   // 2 active
+  });
+});
+
+describe("getting from a person to their work", () => {
+  it("shows everything they have done when the name is clicked", async () => {
+    // Not just active: the point of clicking a name is "what has this
+    // person done", which spans the archive.
+    const { onShowProjects, user } = setup();
+    const rae = rows().find((r) => r.textContent.includes("Rae LeBlanc"));
+    await user.click(within(rae).getByRole("button", { name: "Rae LeBlanc" }));
+    expect(onShowProjects).toHaveBeenCalledWith("p1", "both");
+  });
+
+  it("offers the pencil beside the name rather than across the row", async () => {
+    const { user } = setup();
+    const rae = rows().find((r) => r.textContent.includes("Rae LeBlanc"));
+    await user.click(within(rae).getByRole("button", { name: "Edit Rae LeBlanc" }));
+    expect(screen.getByDisplayValue("Rae LeBlanc")).toBeInTheDocument();
+  });
+});
+
+describe("leaving a half-finished staff edit", () => {
+  const editRow = async (user, name) => {
+    const row = rows().find((r) => r.textContent.includes(name));
+    await user.click(within(row).getByRole("button", { name: `Edit ${name}` }));
+  };
+
+  it("closes without fuss when nothing changed", async () => {
+    const { user } = setup();
+    await editRow(user, "Tomi Okafor");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "You have unsaved changes" })).toBeNull();
+  });
+
+  it("asks, and offers all three ways out", async () => {
+    const { user } = setup();
+    await editRow(user, "Tomi Okafor");
+    await user.type(screen.getByDisplayValue("Tomi Okafor"), "!");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    const dialog = screen.getByRole("dialog", { name: "You have unsaved changes" });
+    for (const label of ["Save now", "Keep editing", "Discard"]) {
+      expect(within(dialog).getByRole("button", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("saves from the dialog", async () => {
+    const { onSavePerson, user } = setup();
+    await editRow(user, "Tomi Okafor");
+    await user.type(screen.getByDisplayValue("Tomi Okafor"), "!");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Save now" }));
+
+    expect(onSavePerson).toHaveBeenCalledTimes(1);
+    expect(onSavePerson.mock.calls[0][1].display_name).toBe("Tomi Okafor!");
+  });
+
+  it("discards without saving", async () => {
+    const { onSavePerson, user } = setup();
+    await editRow(user, "Tomi Okafor");
+    await user.type(screen.getByDisplayValue("Tomi Okafor"), "!");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+
+    expect(onSavePerson).not.toHaveBeenCalled();
+    expect(shownNames().join(" ")).toContain("Tomi Okafor");
+  });
+
+  it("notices a changed end date, not just a changed name", async () => {
+    const { user } = setup();
+    await editRow(user, "Tomi Okafor");
+    await user.type(screen.getByLabelText("End date"), "06302027");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("dialog", { name: "You have unsaved changes" })).toBeInTheDocument();
+  });
+});
+
+describe("saving a staff edit with the keyboard", () => {
+  it("saves on Enter in the name field", async () => {
+    const { onSavePerson, user } = setup();
+    const row = rows().find((r) => r.textContent.includes("Tomi Okafor"));
+    await user.click(within(row).getByRole("button", { name: "Edit Tomi Okafor" }));
+
+    const nameBox = screen.getByDisplayValue("Tomi Okafor");
+    await user.clear(nameBox);
+    await user.type(nameBox, "Tomi Albrecht{Enter}");
+
+    expect(onSavePerson).toHaveBeenCalledTimes(1);
+    expect(onSavePerson.mock.calls[0][1].display_name).toBe("Tomi Albrecht");
+  });
+});
+
 describe("editing someone", () => {
   const editRowFor = async (user, name) => {
     const row = rows().find((r) => r.textContent.includes(name));
-    await user.click(within(row).getByRole("button", { name: /Edit/ }));
+    await user.click(within(row).getByRole("button", { name: `Edit ${name}` }));
   };
 
   it("renames without touching anything else, so project links survive", async () => {
@@ -167,21 +288,21 @@ describe("editing someone", () => {
     const { onShowProjects, user } = setup();
     const rae = rows().find((r) => r.textContent.includes("Rae LeBlanc"));
     await user.click(within(rae).getByRole("button", { name: /2 projects active/ }));
-    expect(onShowProjects).toHaveBeenCalledWith("p1", false);
+    expect(onShowProjects).toHaveBeenCalledWith("p1", "active");
   });
 
   it("sends you to that person's archived projects", async () => {
     const { onShowProjects, user } = setup();
     const rae = rows().find((r) => r.textContent.includes("Rae LeBlanc"));
     await user.click(within(rae).getByRole("button", { name: /1 project archived/ }));
-    expect(onShowProjects).toHaveBeenCalledWith("p1", true);
+    expect(onShowProjects).toHaveBeenCalledWith("p1", "archived");
   });
 
   it("keeps the links live even at zero, so you can confirm the emptiness", async () => {
     const { onShowProjects, user } = setup();
     const ben = rows().find((r) => r.textContent.includes("Ben Iwu"));
     await user.click(within(ben).getByRole("button", { name: /0 projects active/ }));
-    expect(onShowProjects).toHaveBeenCalledWith("p5", false);
+    expect(onShowProjects).toHaveBeenCalledWith("p5", "active");
   });
 
   it("will not save an empty name", async () => {

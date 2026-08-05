@@ -143,9 +143,87 @@ describe("the roster links through to the table", () => {
 
     // The Archived toggle has to actually be on, or the table is showing
     // active rows under an archived heading.
-    expect(screen.getByRole("button", { name: "Show archived projects" }))
-      .toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Showing archived projects/ })).toBeInTheDocument();
     expect(rowTitles().length).toBeGreaterThan(0);
+  });
+});
+
+describe("the active / archived / both control", () => {
+  const viewButton = () => screen.getByRole("button", { name: /Showing .* projects/ });
+
+  it("starts on active", () => {
+    expect(viewButton()).toHaveTextContent("Active");
+  });
+
+  it("cycles through all three states", async () => {
+    await user.click(viewButton());
+    expect(viewButton()).toHaveTextContent("Archived");
+    await user.click(viewButton());
+    expect(viewButton()).toHaveTextContent("Both");
+    await user.click(viewButton());
+    expect(viewButton()).toHaveTextContent("Active");
+  });
+
+  it("shows more rows on Both than on either alone", async () => {
+    const active = rowTitles().length;
+    await user.click(viewButton());
+    const archived = rowTitles().length;
+    await user.click(viewButton());
+    const both = rowTitles().length;
+
+    expect(both).toBe(active + archived);
+  });
+
+  it("keeps the tile count honest in every state", async () => {
+    await user.click(viewButton());   // archived
+    await user.click(viewButton());   // both
+    const total = Number(tile("Both").textContent.match(/\d+/)[0]);
+    expect(rowTitles()).toHaveLength(total);
+  });
+});
+
+describe("clicking a person's name", () => {
+  it("shows everything they have done, active and archived together", async () => {
+    await user.click(screen.getByRole("button", { name: "Roster" }));
+    const roster = screen.getByRole("dialog", { name: "Roster" });
+    const row = within(roster).getAllByRole("listitem")
+      .find((r) => r.textContent.includes("Leigh Hickham"));
+
+    await user.click(within(row).getByRole("button", { name: "Leigh Hickham" }));
+
+    // Leigh has an archived project and no active one; a two-way toggle
+    // could not have shown both at once.
+    expect(screen.getByRole("button", { name: /Showing both projects/ })).toBeInTheDocument();
+    expect(rowTitles().length).toBeGreaterThan(0);
+  });
+});
+
+describe("the filter dropdowns are ordered", () => {
+  const optionsOf = (labelText) =>
+    [...screen.getByLabelText(labelText).options].map((o) => o.textContent).slice(1);
+
+  it("lists types alphabetically", () => {
+    const types = optionsOf("Filter by type");
+    expect([...types]).toEqual([...types].sort((a, b) => a.localeCompare(b)));
+  });
+
+  it("lists authors alphabetically", () => {
+    const authors = optionsOf("Filter by author");
+    expect([...authors]).toEqual([...authors].sort((a, b) => a.localeCompare(b)));
+  });
+
+  it("lists academic years newest first", () => {
+    const years = optionsOf("Filter by academic year");
+    expect([...years]).toEqual([...years].sort().reverse());
+  });
+
+  it("keeps work status in workflow order, not alphabetical", () => {
+    // Idea → Complete, with the exits after. Alphabetical would open with
+    // "Abandoned, Analyzing, Collecting…", which describes no process.
+    const statuses = optionsOf("Filter by work status");
+    expect(statuses[0]).toBe("Idea");
+    expect(statuses[statuses.length - 1]).toBe("Abandoned");
+    expect(statuses.indexOf("Complete")).toBeLessThan(statuses.indexOf("On hold"));
   });
 });
 

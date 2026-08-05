@@ -1,6 +1,7 @@
 import React, { useEffect, useId } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import { brand, label, toneOf, scanForIdentifiers } from "../lib/domain.js";
+import { maskDateInput, displayDateToIso, isoToDisplayDate } from "../lib/projects.js";
 
 export function Badge({ list, code, small }) {
   const tone = toneOf(list, code);
@@ -94,6 +95,55 @@ export const TextInput = React.forwardRef(function TextInput(props, ref) {
     />
   );
 });
+
+/* A date box you can just type into.
+
+   `<input type="date">` steps you through month, then day, then year, and
+   resists anyone typing straight through — you cannot paste, and the
+   segment order is whatever the browser locale decided. This is a plain
+   text field that accepts digits and inserts the slashes itself, so
+   08/04/2026 is eight keystrokes and nothing else.
+
+   The VALUE stays ISO (yyyy-mm-dd) in and out, because that is what the
+   database stores and what sorts correctly. Only what you see is
+   MM/DD/YYYY. A half-typed date reads as empty rather than as a wrong
+   date, so nothing partial is ever committed. */
+export function DateInput({ value, onChange, ...props }) {
+  const [text, setText] = React.useState(() => isoToDisplayDate(value));
+
+  // Follow the value when it changes underneath us — a different project
+  // opened, a draft reset — but never while the field is being typed in.
+  const lastIso = React.useRef(value);
+  React.useEffect(() => {
+    if (value !== lastIso.current) {
+      lastIso.current = value;
+      setText(isoToDisplayDate(value));
+    }
+  }, [value]);
+
+  const handle = (e) => {
+    const masked = maskDateInput(e.target.value);
+    setText(masked);
+    const iso = displayDateToIso(masked);
+    lastIso.current = iso;
+    onChange?.(iso);
+  };
+
+  return (
+    <input
+      {...props}
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      placeholder="MM/DD/YYYY"
+      maxLength={10}
+      value={text}
+      onChange={handle}
+      className="w-full rounded-md px-3 py-2 text-sm outline-none focus:ring-2"
+      style={inputStyle}
+    />
+  );
+}
 
 export function Select({ options, ...props }) {
   return (

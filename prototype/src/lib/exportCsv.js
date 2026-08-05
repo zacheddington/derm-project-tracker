@@ -6,21 +6,27 @@
    to leave it in a form anyone can open. That makes it worth testing, so
    building the text is separated from downloading it.
 
-   The column names match `project_export` in 0003_views.sql, so the
-   browser export and a `select * from project_export` produce the same
-   spreadsheet.
+   It exports what is on screen — the same columns, and the same rows the
+   filters left behind. A download that quietly contains more than the
+   list you were looking at is a different document with the same name.
    --------------------------------------------------------------------- */
 
-import {
-  TYPES, WORK_STATUSES, SUBMISSION_STATUSES, IRB_STATUSES, CONSENT,
-  label, ayLabel,
-} from "./domain.js";
+import { TYPES, WORK_STATUSES, SUBMISSION_STATUSES, label } from "./domain.js";
 
+/* What the table shows, and nothing else.
+
+   This used to be every column in the schema, which made the download a
+   different artefact from the thing you were looking at: you filtered a
+   list down to six rows, exported, and got twenty-two columns of fields
+   that were never on screen. Export now means "give me this, as a file".
+
+   The full flattened record still exists — `project_export` in
+   0003_views.sql — for reporting that genuinely needs every field. That
+   is a different job and it belongs in the database, not behind a button
+   labelled Export CSV. */
 export const CSV_COLUMNS = [
-  "title", "project_type", "work_status", "academic_year", "authors", "resident_authors",
-  "case_number", "diagnosis", "why_unique", "year_seen", "consent", "attending",
-  "description", "irb_status", "purpose", "venues", "next_action",
-  "next_action_due_date", "created_at", "updated_at", "archived", "archived_at",
+  "title", "case_number", "next_action",     // the Project column, unpacked
+  "project_type", "work_status", "authors", "venues", "updated_at",
 ];
 
 /* Spreadsheet formula injection.
@@ -61,33 +67,17 @@ export function venueLabel(venue) {
 
 export function projectsToCsv(projects, people) {
   const nameOf = (id) => people.find((p) => p.id === id)?.display_name ?? "—";
-  const isResident = (id) => people.find((p) => p.id === id)?.staff_position === "resident";
 
   const rows = projects.map((p) => [
     p.title,
+    p.details?.case_number || "",
+    p.next_action || "",
     label(TYPES, p.project_type),
     label(WORK_STATUSES, p.work_status),
-    ayLabel(p.academic_year),
     p.authors.map(nameOf).join("; "),
-    p.authors.filter(isResident).map(nameOf).join("; "),
-    p.details?.case_number || "",
-    p.details?.diagnosis || "",
-    p.details?.why_unique || "",
-    p.details?.year_seen || "",
-    p.details?.patient_consent_obtained ? label(CONSENT, p.details.patient_consent_obtained) : "",
-    p.details?.attending_id ? nameOf(p.details.attending_id) : "",
-    p.details?.description || "",
-    label(IRB_STATUSES, p.irb_status),
-    p.purpose,
     p.venues.map((v) => `${venueLabel(v)} (${label(SUBMISSION_STATUSES, v.submission_status)})`).join("; "),
-    p.next_action,
-    p.next_action_due_date,
-    // Dates, not just a flag: "how many finished since July?" is a real
-    // question and a yes/no column cannot answer it.
-    p.created_at ? p.created_at.slice(0, 10) : "",
+    // The column reads "3 days ago" on screen; a spreadsheet wants the day.
     p.updated_at.slice(0, 10),
-    p.archived_at ? "yes" : "no",
-    p.archived_at ? p.archived_at.slice(0, 10) : "",
   ]);
 
   return [CSV_COLUMNS.join(","), ...rows.map((r) => r.map(escapeCsv).join(","))].join("\n");

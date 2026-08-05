@@ -8,7 +8,44 @@ import { WORK_STATUSES, TYPES, label, nextCaseId, academicYearOf } from "./domai
 export const DAY = 864e5;
 export const PAGE_SIZE = 20;
 
-/* --------------------------------- age --------------------------------- */
+/* ------------------------------- dates --------------------------------- */
+
+/* Typing a date.
+
+   The native <input type="date"> walks you through three separate
+   segments and fights anyone who types straight through. These back a
+   plain text box that accepts digits and puts the slashes in itself, so
+   MM/DD/YYYY can be typed without stopping.
+
+   The stored value stays ISO yyyy-mm-dd — that is what Postgres wants and
+   what sorts correctly. Only the display is American. */
+
+export function maskDateInput(raw) {
+  const digits = String(raw ?? "").replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+/* "" for anything not yet a complete, real date. Half-typed input is not
+   an error — it is someone mid-keystroke — so it stores nothing rather
+   than something wrong. */
+export function displayDateToIso(display) {
+  const digits = String(display ?? "").replace(/\D/g, "");
+  if (digits.length !== 8) return "";
+  const mm = digits.slice(0, 2), dd = digits.slice(2, 4), yyyy = digits.slice(4);
+  const month = Number(mm), day = Number(dd), year = Number(yyyy);
+  if (month < 1 || month > 12 || day < 1 || day > 31 || year < 1900) return "";
+  // Round-trip through Date to reject 02/31 and friends.
+  const d = new Date(Date.UTC(year, month - 1, day));
+  if (d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) return "";
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+export function isoToDisplayDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso ?? ""));
+  return m ? `${m[2]}/${m[3]}/${m[1]}` : "";
+}
 
 /* Dates are shown, never parsed back. ISO in, readable out; the day is
    what anyone means by "when was this submitted". */
@@ -18,6 +55,8 @@ export function formatDate(iso) {
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
+
+/* --------------------------------- age --------------------------------- */
 
 export const ageInDays = (project, now = Date.now()) =>
   Math.floor((now - new Date(project.updated_at).getTime()) / DAY);
@@ -34,13 +73,30 @@ export function stalenessLabel(project, now = Date.now()) {
 
 /* ------------------------------ filtering ------------------------------ */
 
+/* Three states, not two.
+
+   A two-way toggle can show active OR archived and never both, so
+   "everything this person has ever done" was unaskable — which is exactly
+   what you want when you click a name in the roster. The cycle is
+   active → archived → both, starting where the day-to-day view starts. */
+export const ARCHIVED_VIEWS = [
+  { code: "active", label: "Active" },
+  { code: "archived", label: "Archived" },
+  { code: "both", label: "Both" },
+];
+
+export function nextArchivedView(current) {
+  const i = ARCHIVED_VIEWS.findIndex((v) => v.code === current);
+  return ARCHIVED_VIEWS[(i + 1) % ARCHIVED_VIEWS.length].code;
+}
+
 export const EMPTY_FILTERS = {
   q: "",
   type: "all",
   status: "all",
   author: "all",
   year: "all",
-  archived: false,
+  archived: "active",   // "active" | "archived" | "both"
 };
 
 /* Everything the search box looks at, for one project.
@@ -84,7 +140,8 @@ export function filterProjects(projects, filters = {}, options = {}) {
   const t = f.q.trim().toLowerCase();
 
   return projects.filter((p) => {
-    if (f.archived !== Boolean(p.archived_at)) return false;
+    if (f.archived === "active" && p.archived_at) return false;
+    if (f.archived === "archived" && !p.archived_at) return false;
     if (f.type !== "all" && p.project_type !== f.type) return false;
     if (f.status !== "all" && p.work_status !== f.status) return false;
     if (f.author !== "all" && !p.authors.includes(f.author)) return false;

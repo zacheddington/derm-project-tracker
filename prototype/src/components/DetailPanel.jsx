@@ -6,7 +6,7 @@ import {
 } from "../lib/domain.js";
 import { validateProject, changeProjectType, maxYearSeen, formatDate } from "../lib/projects.js";
 import {
-  Badge, Button, Field, Modal, Select, TextArea, TextInput, IdentifierNotice,
+  Badge, Button, DateInput, Field, Modal, Select, TextArea, TextInput, IdentifierNotice,
 } from "./primitives.jsx";
 import AuthorPicker from "./AuthorPicker.jsx";
 
@@ -141,6 +141,19 @@ export default function DetailPanel({
 
   const attemptClose = () => (dirty ? setConfirmDiscard(true) : onClose());
 
+  /* "Save now" from the unsaved-changes dialog. Offering only discard or
+     go-back made the dialog a detour: the thing you wanted was to save,
+     and it sent you away to do it. If the draft is invalid this refuses
+     and shows why, rather than closing over a failed save. */
+  const saveAndClose = () => {
+    const found = validateProject(draft, now());
+    if (found.length) { setConfirmDiscard(false); setErrors(found); return; }
+    onSave({ ...draft, updated_at: new Date(now()).toISOString() });
+    setDirty(false);
+    setConfirmDiscard(false);
+    onClose();
+  };
+
   const maxYear = maxYearSeen(now());
 
   return (
@@ -239,21 +252,6 @@ export default function DetailPanel({
                 <AuthorPicker people={people} selected={draft.authors} onChange={(o) => set({ authors: o })}
                               onAddPerson={onAddPerson} now={now()} />
               </Field>
-
-              <Field label="Purpose" hint="The goal, the impact, or why this matters.">
-                <TextArea rows={2} value={draft.purpose} onChange={(e) => set({ purpose: e.target.value })} />
-                <IdentifierNotice text={draft.purpose} />
-              </Field>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-                <Field label="Next action">
-                  <TextInput value={draft.next_action} onChange={(e) => set({ next_action: e.target.value })} />
-                </Field>
-                <Field label="Due">
-                  <TextInput type="date" value={draft.next_action_due_date}
-                             onChange={(e) => set({ next_action_due_date: e.target.value })} />
-                </Field>
-              </div>
 
               {draft.project_type === "case_report" && (
                 <div className="rounded-lg p-4 mt-2" style={{ background: brand.surface, border: `1px solid ${brand.border}` }}>
@@ -358,6 +356,22 @@ export default function DetailPanel({
                 </div>
               )}
 
+              {/* What happens next, and when. Below the type-specific
+                  detail because it is about the project's momentum rather
+                  than its substance — and it is the same question for all
+                  four types, so it reads better once the differences are
+                  out of the way. */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 mt-5">
+                <Field label="Next action">
+                  <TextInput value={draft.next_action} onChange={(e) => set({ next_action: e.target.value })} />
+                </Field>
+                <Field label="Due">
+                  <DateInput value={draft.next_action_due_date}
+                             onChange={(iso) => set({ next_action_due_date: iso })}
+                             aria-label="Due date" />
+                </Field>
+              </div>
+
               <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${brand.border}` }}>
                 <Button variant="secondary" onClick={() => onArchive(draft.id)}>
                   <Archive size={14} />
@@ -410,8 +424,9 @@ export default function DetailPanel({
                               onChange={(e) => setVenue(v.id, { submission_status: e.target.value })} />
                     </Field>
                     <Field label="Target date">
-                      <TextInput type="date" value={v.target_date}
-                                 onChange={(e) => setVenue(v.id, { target_date: e.target.value })} />
+                      <DateInput value={v.target_date}
+                                 onChange={(iso) => setVenue(v.id, { target_date: iso })}
+                                 aria-label="Target date" />
                     </Field>
                   </div>
                   <Field label="Notes">
@@ -486,17 +501,18 @@ export default function DetailPanel({
 
       {confirmDiscard && (
         <Modal
-          title="Discard your changes?"
+          title="You have unsaved changes"
           tone="danger"
           onClose={() => setConfirmDiscard(false)}
           actions={
             <>
               <Button variant="ghost" onClick={() => setConfirmDiscard(false)}>Keep editing</Button>
               <Button variant="danger" onClick={() => { setConfirmDiscard(false); onClose(); }}>Discard</Button>
+              <Button onClick={saveAndClose}>Save now</Button>
             </>
           }
         >
-          You have edits that have not been saved. Closing now loses them.
+          Save them, keep editing, or close and lose them.
         </Modal>
       )}
     </div>

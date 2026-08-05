@@ -77,6 +77,74 @@ describe("finding someone", () => {
   });
 });
 
+describe("picking an author from the keyboard", () => {
+  const search = () => screen.getByLabelText("Search for an author");
+  const options = () =>
+    screen.getAllByRole("button").filter((b) => b.hasAttribute("aria-selected"));
+  const highlighted = () => options().find((b) => b.getAttribute("aria-selected") === "true");
+
+  it("highlights the top match as soon as there is one", async () => {
+    const { user } = pickerSetup([]);
+    await user.type(search(), "a");
+    expect(highlighted()).toBe(options()[0]);
+  });
+
+  it("takes the highlighted match on Enter", async () => {
+    const { onChange, user } = pickerSetup([]);
+    await user.type(search(), "priya");
+    await user.keyboard("{Enter}");
+    expect(onChange).toHaveBeenCalledWith(["p3"]);
+  });
+
+  it("takes it on Tab too, which is the key people reach for", async () => {
+    const { onChange, user } = pickerSetup([]);
+    await user.type(search(), "priya");
+    await user.tab();
+    expect(onChange).toHaveBeenCalledWith(["p3"]);
+  });
+
+  it("moves down and up the list with the arrows", async () => {
+    const { onChange, user } = pickerSetup([]);
+    await user.type(search(), "a");          // several matches
+    await user.keyboard("{ArrowDown}");
+    expect(highlighted()).toBe(options()[1]);
+    await user.keyboard("{ArrowUp}");
+    expect(highlighted()).toBe(options()[0]);
+    await user.keyboard("{Enter}");
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("wraps around rather than sticking at the ends", async () => {
+    const { user } = pickerSetup([]);
+    await user.type(search(), "a");
+    await user.keyboard("{ArrowUp}");        // up from the top
+    expect(highlighted()).toBe(options()[options().length - 1]);
+  });
+
+  it("puts the highlight back on the top match when the query changes", async () => {
+    const { user } = pickerSetup([]);
+    await user.type(search(), "a");
+    await user.keyboard("{ArrowDown}");
+    await user.type(search(), "r");          // new query, new list
+    expect(highlighted()).toBe(options()[0]);
+  });
+
+  it("does not swallow Tab when there is nothing to take", async () => {
+    // Hijacking Tab with an empty list would trap focus in the box.
+    const { onChange, user } = pickerSetup([]);
+    await user.click(search());
+    await user.tab();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("offers names in alphabetical order", async () => {
+    const { user } = pickerSetup([]);
+    await user.type(search(), "a");
+    const names = options().map((b) => b.textContent);
+    expect([...names]).toEqual([...names].sort((x, y) => x.localeCompare(y)));
+  });
+});
+
 describe("adding someone to the roster inline", () => {
   it("offers to create the name that was typed", async () => {
     const { user } = pickerSetup([]);

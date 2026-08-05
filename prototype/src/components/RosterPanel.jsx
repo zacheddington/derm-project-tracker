@@ -2,9 +2,9 @@ import React, { useState } from "react";
 import { X, Plus, Check, Pencil, Search } from "lucide-react";
 import {
   brand, STAFF_POSITIONS, label, personSubtitle, needsExternalPosition, isPersonActive,
-  filterRoster, projectLoad, pluralProjects,
+  filterRoster, sortRoster, projectLoad, pluralProjects, ROSTER_SORTS,
 } from "../lib/domain.js";
-import { Button, Field, Select, TextInput } from "./primitives.jsx";
+import { Button, DateInput, Field, Modal, Select, TextInput } from "./primitives.jsx";
 
 /* ---------------------------------------------------------------------
    The roster.
@@ -25,8 +25,18 @@ import { Button, Field, Select, TextInput } from "./primitives.jsx";
 function PersonRow({ person, load, onSave, onShowProjects, now }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(person);
+  const [confirmExit, setConfirmExit] = useState(false);
 
   const start = () => { setDraft(person); setEditing(true); };
+
+  // Same shape of question as the project panel: an edit in progress is
+  // worth asking about rather than throwing away on a stray click.
+  const dirty =
+    draft.display_name !== person.display_name ||
+    draft.staff_position !== person.staff_position ||
+    (draft.external_position ?? "") !== (person.external_position ?? "") ||
+    (draft.employment_end_date ?? "") !== (person.employment_end_date ?? "");
+
   const commit = () => {
     if (!draft.display_name.trim()) return;
     onSave(person.id, {
@@ -36,8 +46,12 @@ function PersonRow({ person, load, onSave, onShowProjects, now }) {
       pgy_level: draft.pgy_level,
       employment_end_date: draft.employment_end_date || null,
     });
+    setConfirmExit(false);
     setEditing(false);
   };
+
+  const attemptCancel = () => (dirty ? setConfirmExit(true) : setEditing(false));
+  const discard = () => { setConfirmExit(false); setEditing(false); setDraft(person); };
 
   const active = isPersonActive(person, now);
 
@@ -52,10 +66,30 @@ function PersonRow({ person, load, onSave, onShowProjects, now }) {
         style={{ borderBottom: `1px solid ${brand.border}` }}
       >
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium truncate" style={{ color: brand.navy }}>
-            {person.display_name}
+          <div className="text-sm font-medium truncate flex items-center gap-1.5" style={{ color: brand.navy }}>
+            {/* The name is the link to their work — it is the biggest
+                thing in the row and the obvious thing to click. */}
+            <button
+              type="button"
+              onClick={() => onShowProjects(person.id, "both")}
+              className="hover:underline underline-offset-2 truncate text-left"
+              style={{ color: brand.navy }}
+            >
+              {person.display_name}
+            </button>
+            {/* Editing sits next to the name rather than at the far right,
+                where it was a long way from the thing it edits. */}
+            <button
+              type="button"
+              onClick={start}
+              aria-label={`Edit ${person.display_name}`}
+              className="shrink-0 rounded p-0.5 hover:bg-gray-100"
+              style={{ color: brand.slate }}
+            >
+              <Pencil size={13} />
+            </button>
             {!active && (
-              <span className="ml-2 text-xs font-normal" style={{ color: brand.slate }}>
+              <span className="ml-1 text-xs font-normal" style={{ color: brand.slate }}>
                 left {person.employment_end_date}
               </span>
             )}
@@ -70,7 +104,7 @@ function PersonRow({ person, load, onSave, onShowProjects, now }) {
             {" · "}
             <button
               type="button"
-              onClick={() => onShowProjects(person.id, false)}
+              onClick={() => onShowProjects(person.id, "active")}
               className="underline underline-offset-2 hover:no-underline"
               style={{ color: load.active ? brand.navy : brand.slate }}
             >
@@ -79,7 +113,7 @@ function PersonRow({ person, load, onSave, onShowProjects, now }) {
             {" · "}
             <button
               type="button"
-              onClick={() => onShowProjects(person.id, true)}
+              onClick={() => onShowProjects(person.id, "archived")}
               className="underline underline-offset-2 hover:no-underline"
               style={{ color: load.archived ? brand.navy : brand.slate }}
             >
@@ -87,13 +121,6 @@ function PersonRow({ person, load, onSave, onShowProjects, now }) {
             </button>
           </div>
         </div>
-        <button
-          onClick={start}
-          className="shrink-0 rounded-md px-2 py-1 text-xs inline-flex items-center gap-1.5"
-          style={{ border: `1px solid ${brand.border}`, color: brand.navy }}
-        >
-          <Pencil size={12} /> Edit
-        </button>
       </div>
     );
   }
@@ -104,7 +131,9 @@ function PersonRow({ person, load, onSave, onShowProjects, now }) {
         <Field label="Name">
           <TextInput
             value={draft.display_name}
+            autoFocus
             onChange={(e) => setDraft({ ...draft, display_name: e.target.value })}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commit(); } }}
           />
         </Field>
         <Field label="Role">
@@ -128,16 +157,33 @@ function PersonRow({ person, load, onSave, onShowProjects, now }) {
         label="End date"
         hint="Leave blank while they are still here. Setting it removes them from pickers; every project they authored keeps their name."
       >
-        <TextInput
-          type="date"
+        <DateInput
           value={draft.employment_end_date ?? ""}
-          onChange={(e) => setDraft({ ...draft, employment_end_date: e.target.value })}
+          onChange={(iso) => setDraft({ ...draft, employment_end_date: iso })}
+          aria-label="End date"
         />
       </Field>
       <div className="flex gap-2">
         <Button onClick={commit} disabled={!draft.display_name.trim()}><Check size={14} /> Save</Button>
-        <Button variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+        <Button variant="ghost" onClick={attemptCancel}>Cancel</Button>
       </div>
+
+      {confirmExit && (
+        <Modal
+          title="You have unsaved changes"
+          tone="danger"
+          onClose={() => setConfirmExit(false)}
+          actions={
+            <>
+              <Button variant="ghost" onClick={() => setConfirmExit(false)}>Keep editing</Button>
+              <Button variant="danger" onClick={discard}>Discard</Button>
+              <Button onClick={commit} disabled={!draft.display_name.trim()}>Save now</Button>
+            </>
+          }
+        >
+          Save your changes to {person.display_name}, keep editing, or discard them.
+        </Modal>
+      )}
     </div>
   );
 }
@@ -147,13 +193,19 @@ export default function RosterPanel({
 }) {
   const [showFormer, setShowFormer] = useState(false);
   const [query, setQuery] = useState("");
+  const [position, setPosition] = useState("all");
+  const [sortBy, setSortBy] = useState("name");
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [newStaffPosition, setNewStaffPosition] = useState("resident");
   const [newExternalPosition, setNewExternalPosition] = useState("");
 
   const loadFor = (id) => projectLoad(id, projects);
-  const shown = filterRoster(people, { showFormer, query }, now);
+  const shown = sortRoster(
+    filterRoster(people, { showFormer, query, position }, now),
+    sortBy,
+    projects
+  );
   const formerCount = people.filter((p) => !isPersonActive(p, now)).length;
 
   const commitNew = () => {
@@ -224,13 +276,40 @@ export default function RosterPanel({
             />
           </div>
 
-          {!showFormer && (
-            <div className="mb-3">
+          {/* "Which residents have nothing on?" is the question this panel
+              is opened to answer, and answering it by scanning
+              twenty-three rows for a zero is the sort of thing people
+              simply stop doing. */}
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <select
+              value={position}
+              onChange={(e) => setPosition(e.target.value)}
+              aria-label="Filter the roster by position"
+              className="rounded-md px-2.5 py-1.5 text-xs"
+              style={{ border: `1px solid ${brand.border}`, background: brand.surface, color: brand.navy }}
+            >
+              <option value="all">All positions</option>
+              {STAFF_POSITIONS.map((r) => (
+                <option key={r.code} value={r.code}>{r.label}</option>
+              ))}
+            </select>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              aria-label="Sort the roster"
+              className="rounded-md px-2.5 py-1.5 text-xs"
+              style={{ border: `1px solid ${brand.border}`, background: brand.surface, color: brand.navy }}
+            >
+              {ROSTER_SORTS.map((o) => (
+                <option key={o.code} value={o.code}>{o.label}</option>
+              ))}
+            </select>
+            {!showFormer && (
               <Button variant="secondary" onClick={() => setAdding((v) => !v)}>
                 <Plus size={14} /> Add someone
               </Button>
-            </div>
-          )}
+            )}
+          </div>
 
           {adding && (
             <div className="rounded-md p-3 mb-3" style={{ border: `1px solid ${brand.border}`, background: brand.bg }}>

@@ -6,12 +6,12 @@ import {
 
 import {
   brand, WORK_STATUSES, SUBMISSION_STATUSES, TYPES,
-  label, ayLabel, academicYearOf, activePeople,
+  label, ayLabel, academicYearOf, activePeople, sortedByName,
   updatePerson, nextCaseId,
 } from "./lib/domain.js";
 import {
-  EMPTY_FILTERS, PAGE_SIZE, filterProjects, sortProjects, nextSort, paginate,
-  stalenessLabel,
+  EMPTY_FILTERS, PAGE_SIZE, ARCHIVED_VIEWS, filterProjects, sortProjects, nextSort,
+  paginate, stalenessLabel, nextArchivedView,
 } from "./lib/projects.js";
 import { downloadCsv } from "./lib/exportCsv.js";
 import { Badge } from "./components/primitives.jsx";
@@ -39,6 +39,16 @@ import RosterPanel from "./components/RosterPanel.jsx";
    --------------------------------------------------------------------- */
 
 const CURRENT_AY = academicYearOf(new Date());
+
+/* Dropdowns are alphabetical so a name can be found by where it should be
+   rather than by reading the whole list. Work status is the exception: it
+   keeps the vocabulary's own order, which is the order a project actually
+   moves through — Idea to Complete, with On hold and Abandoned after,
+   since those are exits rather than stages. Alphabetical there would give
+   "Abandoned, Analyzing, Collecting…", which means nothing. Academic
+   years stay newest-first for the same reason: nobody is looking for
+   2019 first. */
+const sortedTypes = [...TYPES].sort((a, b) => a.label.localeCompare(b.label));
 const daysAgo = (n) => new Date(Date.now() - n * 864e5).toISOString();
 
 /* ------------------------------ sample data ------------------------------
@@ -428,7 +438,14 @@ export default function ProjectTracker() {
         type === "case_report"
           ? {
               case_number: nextCaseId(projects, CURRENT_AY),
-              diagnosis: "", why_unique: "", attending_id: "", year_seen: "",
+              diagnosis: "", why_unique: "", attending_id: "",
+              // Defaulted here, on creation, and nowhere else. Most case
+              // reports are written up in the year they were seen, so
+              // this is right far more often than it is wrong — and it
+              // stays editable. Applying the same default on edit would
+              // silently rewrite the year of every old case report
+              // somebody opened.
+              year_seen: new Date().getFullYear(),
               patient_consent_obtained: "not_yet",
             }
           : { description: "" },
@@ -465,7 +482,8 @@ export default function ProjectTracker() {
      clicking it produces. Counting only live projects while the table
      showed the archive was a small lie the tiles told constantly. */
   const counts = useMemo(() => {
-    const inScope = projects.filter((p) => Boolean(p.archived_at) === filters.archived);
+    const inScope = projects.filter((p) =>
+      filters.archived === "both" ? true : Boolean(p.archived_at) === (filters.archived === "archived"));
     return {
       total: inScope.length,
       byType: TYPES.map((t) => ({ ...t, n: inScope.filter((p) => p.project_type === t.code).length })),
@@ -482,14 +500,15 @@ export default function ProjectTracker() {
 
   /* From the roster: show me this person's projects. Clears everything
      else so the count in the roster equals the rows you land on. */
-  const showProjectsFor = (personId, archived) => {
+  const showProjectsFor = (personId, archived = "both") => {
     setFilters({ ...EMPTY_FILTERS, author: personId, archived });
     setSort(null);
     setPage(1);
     setRosterOpen(false);
   };
 
-  const exportCsv = () => downloadCsv(projects, people);
+  // The rows the filters left behind, in the order they are displayed.
+  const exportCsv = () => downloadCsv(matched, people);
 
   const selectStyle = { border: `1px solid ${brand.border}`, background: brand.surface, color: brand.navy };
   const open = projects.find((p) => p.id === openId);
@@ -504,9 +523,8 @@ export default function ProjectTracker() {
         className="px-4 py-1.5 text-center text-xs"
         style={{ background: brand.warnBg, color: brand.warnText, borderBottom: `1px solid ${brand.warnBorder}` }}
       >
-        <strong>Design prototype.</strong> The staff names are real; every project,
-        status and authorship shown is invented for design purposes and belongs to
-        nobody listed. Nothing is saved, and no patient information appears here.
+        <strong>Design prototype.</strong> Everything shown is sample data for design
+        purposes. Nothing is saved, and no patient information appears here.
       </div>
 
       <header style={{ background: brand.navy }}>
@@ -532,8 +550,11 @@ export default function ProjectTracker() {
       <main className="max-w-6xl mx-auto px-4 py-5">
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-5">
           {[
-            { code: "all", k: filters.archived ? "Archived" : "Active", v: counts.total },
-            ...counts.byType.map((t) => ({ code: t.code, k: t.label, v: t.n })),
+            { code: "all", k: ARCHIVED_VIEWS.find((v) => v.code === filters.archived)?.label ?? "Active", v: counts.total },
+            ...counts.byType
+              .slice()
+              .sort((a, b) => a.label.localeCompare(b.label))
+              .map((t) => ({ code: t.code, k: t.label, v: t.n })),
           ].map((c) => {
             const selected = c.code === "all" ? filters.type === "all" : filters.type === c.code;
             return (
@@ -573,7 +594,7 @@ export default function ProjectTracker() {
           <div className="flex flex-wrap gap-2">
             <select value={filters.type} onChange={(e) => setFilter({ type: e.target.value })} className="rounded-md px-2.5 py-1.5 text-xs" style={selectStyle} aria-label="Filter by type">
               <option value="all">All types</option>
-              {TYPES.map((t) => <option key={t.code} value={t.code}>{t.label}</option>)}
+              {sortedTypes.map((t) => <option key={t.code} value={t.code}>{t.label}</option>)}
             </select>
             <select value={filters.status} onChange={(e) => setFilter({ status: e.target.value })} className="rounded-md px-2.5 py-1.5 text-xs" style={selectStyle} aria-label="Filter by work status">
               <option value="all">Any status</option>
@@ -581,21 +602,25 @@ export default function ProjectTracker() {
             </select>
             <select value={filters.author} onChange={(e) => setFilter({ author: e.target.value })} className="rounded-md px-2.5 py-1.5 text-xs" style={selectStyle} aria-label="Filter by author">
               <option value="all">Any author</option>
-              {activePeople(people, now()).map((p) => <option key={p.id} value={p.id}>{p.display_name}</option>)}
+              {sortedByName(activePeople(people, now())).map((p) => (
+                <option key={p.id} value={p.id}>{p.display_name}</option>
+              ))}
             </select>
             <select value={filters.year} onChange={(e) => setFilter({ year: e.target.value })} className="rounded-md px-2.5 py-1.5 text-xs" style={selectStyle} aria-label="Filter by academic year">
               <option value="all">All years</option>
               {years.map((y) => <option key={y} value={String(y)}>{ayLabel(y)}</option>)}
             </select>
 
+            {/* Three states rather than two, so "everything this person
+                has ever done" is reachable. */}
             <button
-              onClick={() => setFilter({ archived: !filters.archived })}
-              aria-pressed={filters.archived}
-              aria-label="Show archived projects"
+              onClick={() => setFilter({ archived: nextArchivedView(filters.archived) })}
+              aria-label={`Showing ${filters.archived} projects — click to change`}
               className="rounded-md px-2.5 py-1.5 text-xs inline-flex items-center gap-1.5"
-              style={filters.archived ? { background: brand.navy, color: "#fff" } : selectStyle}
+              style={filters.archived === "active" ? selectStyle : { background: brand.navy, color: "#fff" }}
             >
-              <Archive size={12} /> Archived
+              <Archive size={12} />
+              {ARCHIVED_VIEWS.find((v) => v.code === filters.archived)?.label ?? "Active"}
             </button>
 
             <div className="ml-auto flex items-center gap-2">
@@ -619,7 +644,9 @@ export default function ProjectTracker() {
           <div className="rounded-lg py-16 text-center" style={{ background: brand.surface, border: `1px dashed ${brand.border}` }}>
             <Inbox size={28} className="mx-auto mb-3" style={{ color: brand.border }} aria-hidden="true" />
             <p className="text-sm" style={{ color: brand.slate }}>
-              {filters.archived ? "Nothing archived yet." : "No projects match these filters."}
+              {filters.archived === "archived" && matched.length === 0 && filters.q === ""
+                ? "Nothing archived yet."
+                : "No projects match these filters."}
             </p>
           </div>
         ) : (
@@ -741,10 +768,10 @@ export default function ProjectTracker() {
         )}
 
         <p className="text-xs mt-6 leading-relaxed" style={{ color: brand.slate }}>
-          Prototype. Data lives in memory only and resets on reload. The roster is the real
-          department; the projects attached to it are invented and are not anybody's actual
-          scholarly work. Contains no protected health information: case reports carry a
-          system-generated case number, and the mapping to a patient stays in the EMR.
+          Prototype. Data lives in memory only and resets on reload; every project shown is
+          sample data for design purposes. Contains no protected health information: case
+          reports carry a system-generated case number, and the mapping to a patient stays
+          in the EMR.
         </p>
       </main>
 

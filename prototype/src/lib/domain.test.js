@@ -7,6 +7,7 @@ import {
   isPersonActive,
   activePeople,
   filterRoster,
+  sortRoster,
   projectLoad,
   pluralProjects,
   renamePerson,
@@ -122,6 +123,79 @@ describe("the roster list", () => {
 
   it("returns nothing rather than everything when nothing matches", () => {
     expect(names({ query: "zzzz" })).toEqual([]);
+  });
+});
+
+describe("ordering and narrowing the roster", () => {
+  const now = AT("2026-08-04T12:00:00Z");
+  const people = [
+    { id: "p1", display_name: "Zoe Adams", staff_position: "resident" },
+    { id: "p2", display_name: "Adam Zephyr", staff_position: "attending" },
+    { id: "p3", display_name: "Mia Nolan", staff_position: "resident" },
+    { id: "p4", display_name: "Owen Pike", staff_position: "fellow" },
+  ];
+  const projects = [
+    { id: "x1", authors: ["p1"], archived_at: null },
+    { id: "x2", authors: ["p1"], archived_at: null },
+    { id: "x3", authors: ["p2"], archived_at: null },
+    { id: "x4", authors: ["p4"], archived_at: "2026-01-01T00:00:00Z" },
+  ];
+  const names = (list) => list.map((p) => p.display_name);
+
+  it("sorts by the name as displayed, not by surname", () => {
+    // The list shows "Zoe Adams"; sorting it by "Adams" would put it in an
+    // order nobody reading the screen can see.
+    expect(names(sortRoster(people, "name"))).toEqual([
+      "Adam Zephyr", "Mia Nolan", "Owen Pike", "Zoe Adams",
+    ]);
+  });
+
+  it("puts the people with nothing on at the top when sorting by load", () => {
+    // The question the roster exists to answer.
+    expect(names(sortRoster(people, "load", projects))).toEqual([
+      "Mia Nolan",     // 0 active, 0 archived
+      "Owen Pike",     // 0 active, 1 archived — has at least finished something
+      "Adam Zephyr",   // 1 active
+      "Zoe Adams",     // 2 active
+    ]);
+  });
+
+  it("ranks someone who has finished work above someone who never had any", () => {
+    const [first, second] = sortRoster(people, "load", projects);
+    expect(first.display_name).toBe("Mia Nolan");
+    expect(second.display_name).toBe("Owen Pike");
+  });
+
+  it("breaks ties alphabetically so the order is stable", () => {
+    const noWork = [
+      { id: "a", display_name: "Bea", staff_position: "resident" },
+      { id: "b", display_name: "Abe", staff_position: "resident" },
+    ];
+    expect(names(sortRoster(noWork, "load", []))).toEqual(["Abe", "Bea"]);
+  });
+
+  it("does not mutate the list it is handed", () => {
+    const before = names(people);
+    sortRoster(people, "load", projects);
+    expect(names(people)).toEqual(before);
+  });
+
+  it("narrows to one position", () => {
+    expect(names(filterRoster(people, { position: "resident" }, now)))
+      .toEqual(["Zoe Adams", "Mia Nolan"]);
+    expect(names(filterRoster(people, { position: "attending" }, now)))
+      .toEqual(["Adam Zephyr"]);
+  });
+
+  it("shows everyone when no position is chosen", () => {
+    expect(filterRoster(people, { position: "all" }, now)).toHaveLength(4);
+    expect(filterRoster(people, {}, now)).toHaveLength(4);
+  });
+
+  it("combines a position with the search box", () => {
+    expect(names(filterRoster(people, { position: "resident", query: "mia" }, now)))
+      .toEqual(["Mia Nolan"]);
+    expect(filterRoster(people, { position: "attending", query: "mia" }, now)).toEqual([]);
   });
 });
 

@@ -102,15 +102,34 @@ describe("spreadsheet formula injection", () => {
   });
 });
 
-describe("the exported sheet", () => {
+describe("the exported sheet mirrors the table", () => {
   it("leads with the documented header row", () => {
     const [header] = projectsToCsv([], people).split("\n");
     expect(parseRow(header)).toEqual(CSV_COLUMNS);
   });
 
-  it("says authors, not owners, matching the interface and project_export", () => {
+  it("exports the columns on screen and nothing else", () => {
+    // The download used to carry twenty-two columns for a table showing
+    // six, which made it a different document with the same name.
+    expect(CSV_COLUMNS).toEqual([
+      "title", "case_number", "next_action",
+      "project_type", "work_status", "authors", "venues", "updated_at",
+    ]);
+  });
+
+  it("no longer carries fields that were never on the table", () => {
+    for (const gone of [
+      "purpose", "diagnosis", "why_unique", "year_seen", "consent",
+      "attending", "description", "irb_status", "academic_year",
+      "resident_authors", "next_action_due_date", "created_at",
+      "archived", "archived_at",
+    ]) {
+      expect(CSV_COLUMNS).not.toContain(gone);
+    }
+  });
+
+  it("says authors, not owners", () => {
     expect(CSV_COLUMNS).toContain("authors");
-    expect(CSV_COLUMNS).toContain("resident_authors");
     expect(CSV_COLUMNS).not.toContain("owners");
     expect(CSV_COLUMNS).toContain("case_number");
     expect(CSV_COLUMNS).not.toContain("case_id");
@@ -125,13 +144,22 @@ describe("the exported sheet", () => {
     const row = parseRow(projectsToCsv([project()], people).split("\n")[1]);
     expect(row[CSV_COLUMNS.indexOf("project_type")]).toBe("Case report");
     expect(row[CSV_COLUMNS.indexOf("work_status")]).toBe("In edit");
-    expect(row[CSV_COLUMNS.indexOf("academic_year")]).toBe("2026–2027");
   });
 
-  it("lists all authors in one cell and residents separately for ACGME", () => {
+  it("lists every author in one cell, as the Authors column does", () => {
     const row = parseRow(projectsToCsv([project()], people).split("\n")[1]);
     expect(row[CSV_COLUMNS.indexOf("authors")]).toBe("Rae LeBlanc; Priya Raman");
-    expect(row[CSV_COLUMNS.indexOf("resident_authors")]).toBe("Rae LeBlanc");
+  });
+
+  it("unpacks the Project column into its parts", () => {
+    // On screen the case number and next action sit under the title; a
+    // spreadsheet wants them in their own columns.
+    const row = parseRow(projectsToCsv([project({
+      next_action: "Return revisions",
+      details: { case_number: "CR-2026-001" },
+    })], people).split("\n")[1]);
+    expect(row[CSV_COLUMNS.indexOf("case_number")]).toBe("CR-2026-001");
+    expect(row[CSV_COLUMNS.indexOf("next_action")]).toBe("Return revisions");
   });
 
   it("survives a title containing a comma without shifting every column", () => {
@@ -155,49 +183,11 @@ describe("the exported sheet", () => {
   it("carries the free-text kind through for an Other venue", () => {
     expect(venueLabel({ venue_type: "other", venue_name: "Teaching day", other_venue_description: "Grand rounds elsewhere" }))
       .toBe("Teaching day [Grand rounds elsewhere]");
-    // A leftover description on a non-Other venue is ignored rather than
-    // exported, matching the CHECK constraint in the schema.
     expect(venueLabel({ venue_type: "poster", venue_name: "MDS", other_venue_description: "stale" }))
       .toBe("MDS");
   });
 
-  it("resolves the attending to a name, not an id", () => {
-    const csv = projectsToCsv([project({ details: { attending_id: "p2" } })], people);
-    expect(parseRow(csv.split("\n")[1])[CSV_COLUMNS.indexOf("attending")]).toBe("Priya Raman");
-  });
-
-  it("leaves type-specific columns empty for the other types", () => {
-    const csv = projectsToCsv([project({ project_type: "research", details: { description: "A study" } })], people);
-    const row = parseRow(csv.split("\n")[1]);
-    expect(row[CSV_COLUMNS.indexOf("description")]).toBe("A study");
-    expect(row[CSV_COLUMNS.indexOf("case_number")]).toBe("");
-    expect(row[CSV_COLUMNS.indexOf("diagnosis")]).toBe("");
-  });
-
-  it("marks archived projects rather than dropping them", () => {
-    const csv = projectsToCsv([project({ archived_at: "2026-07-01T00:00:00.000Z" })], people);
-    expect(parseRow(csv.split("\n")[1])[CSV_COLUMNS.indexOf("archived")]).toBe("yes");
-  });
-
-  it("carries the dates a report needs, not just a yes/no", () => {
-    // "How many did we finish since July?" cannot be answered by a flag.
-    const csv = projectsToCsv([project({
-      created_at: "2026-01-15T09:00:00.000Z",
-      archived_at: "2026-07-01T00:00:00.000Z",
-    })], people);
-    const row = parseRow(csv.split("\n")[1]);
-    expect(row[CSV_COLUMNS.indexOf("created_at")]).toBe("2026-01-15");
-    expect(row[CSV_COLUMNS.indexOf("archived_at")]).toBe("2026-07-01");
-    expect(row[CSV_COLUMNS.indexOf("archived")]).toBe("yes");
-  });
-
-  it("leaves the archived date empty for a live project", () => {
-    const row = parseRow(projectsToCsv([project()], people).split("\n")[1]);
-    expect(row[CSV_COLUMNS.indexOf("archived_at")]).toBe("");
-    expect(row[CSV_COLUMNS.indexOf("archived")]).toBe("no");
-  });
-
-  it("exports the update date only, never a time", () => {
+  it("gives the Updated column as a date, not as 3 days ago", () => {
     const row = parseRow(projectsToCsv([project()], people).split("\n")[1]);
     expect(row[CSV_COLUMNS.indexOf("updated_at")]).toBe("2026-08-03");
   });

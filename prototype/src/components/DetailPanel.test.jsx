@@ -194,7 +194,7 @@ describe("closing with unsaved changes", () => {
     await user.click(screen.getByRole("button", { name: "Close panel" }));
 
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByRole("dialog", { name: "Discard your changes?" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "You have unsaved changes" })).toBeInTheDocument();
   });
 
   it("keeps editing when the discard is declined", async () => {
@@ -215,6 +215,92 @@ describe("closing with unsaved changes", () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onSave).not.toHaveBeenCalled();
+  });
+});
+
+describe("saving from the unsaved-changes dialog", () => {
+  it("offers all three ways out", async () => {
+    const { user } = setup();
+    await user.type(titleBox(), "!");
+    await user.click(screen.getByRole("button", { name: "Close panel" }));
+
+    const dialog = screen.getByRole("dialog", { name: "You have unsaved changes" });
+    for (const label of ["Save now", "Keep editing", "Discard"]) {
+      expect(within(dialog).getByRole("button", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("saves and closes without a detour back into the form", async () => {
+    const { onSave, onClose, user } = setup();
+    const title = titleBox();
+    await user.clear(title);
+    await user.type(title, "Renamed from the dialog");
+    await user.click(screen.getByRole("button", { name: "Close panel" }));
+    await user.click(screen.getByRole("button", { name: "Save now" }));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0].title).toBe("Renamed from the dialog");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to save an invalid draft, and does not close over the failure", async () => {
+    const { onSave, onClose, user } = setup();
+    await user.click(screen.getByRole("button", { name: "Remove Rae LeBlanc" }));
+    await user.click(screen.getByRole("button", { name: "Remove Priya Raman" }));
+    await user.click(screen.getByRole("button", { name: "Close panel" }));
+    await user.click(screen.getByRole("button", { name: "Save now" }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText(/at least one author/i)).toBeInTheDocument();
+  });
+});
+
+describe("the fields that were moved or removed", () => {
+  it("no longer asks for a purpose", () => {
+    setup();
+    expect(screen.queryByText(/^Purpose$/)).toBeNull();
+    expect(screen.queryByText(/why this matters/i)).toBeNull();
+  });
+
+  it("still keeps next action and its due date", () => {
+    setup();
+    expect(screen.getByText("Next action")).toBeInTheDocument();
+    expect(screen.getByLabelText("Due date")).toBeInTheDocument();
+  });
+
+  it("puts next action after the type-specific detail, above Archive", () => {
+    setup();
+    const text = screen.getByRole("dialog").textContent;
+    const detail = text.indexOf("Case detail");
+    const next = text.indexOf("Next action");
+    const archive = text.indexOf("Archive project");
+    expect(detail).toBeGreaterThan(-1);
+    expect(next).toBeGreaterThan(detail);
+    expect(archive).toBeGreaterThan(next);
+  });
+});
+
+describe("typing a date", () => {
+  it("uses a typed field rather than a segmented picker", () => {
+    setup();
+    const due = screen.getByLabelText("Due date");
+    expect(due).toHaveAttribute("type", "text");
+    expect(due).toHaveAttribute("placeholder", "MM/DD/YYYY");
+  });
+
+  it("formats as you type and stores ISO", async () => {
+    const { onSave, user } = setup();
+    await user.type(screen.getByLabelText("Due date"), "12252026");
+    expect(screen.getByLabelText("Due date")).toHaveValue("12/25/2026");
+
+    await user.click(saveButton());
+    expect(onSave.mock.calls[0][0].next_action_due_date).toBe("2026-12-25");
+  });
+
+  it("shows an existing date in the same format", () => {
+    setup({ next_action_due_date: "2026-03-09" });
+    expect(screen.getByLabelText("Due date")).toHaveValue("03/09/2026");
   });
 });
 
@@ -262,8 +348,9 @@ describe("deleting a venue", () => {
     await openVenues(user);
     expect(screen.queryByPlaceholderText(/Grand rounds/i)).toBeNull();
 
-    const kind = screen.getAllByRole("combobox").find((s) =>
-      [...s.options].some((o) => o.value === "internal_presentation"));
+    const kind = screen.getAllByRole("combobox")
+      .filter((el) => el.tagName === "SELECT")
+      .find((s) => [...s.options].some((o) => o.value === "internal_presentation"));
     await user.selectOptions(kind, "other");
     expect(screen.getByPlaceholderText(/Grand rounds/i)).toBeInTheDocument();
   });
@@ -292,8 +379,9 @@ describe("changing the project type", () => {
 
 describe("the attending picker", () => {
   const attendingSelect = () =>
-    screen.getAllByRole("combobox").find((s) =>
-      [...s.options].some((o) => o.value === "__add"));
+    screen.getAllByRole("combobox")
+      .filter((el) => el.tagName === "SELECT")
+      .find((s) => [...s.options].some((o) => o.value === "__add"));
 
   it("offers attendings only — not residents, coordinators or leavers", () => {
     setup();

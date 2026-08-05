@@ -129,6 +129,20 @@ export function activePeople(people, now = Date.now()) {
   return people.filter((p) => isPersonActive(p, now));
 }
 
+/* One shared collator for every name comparison in the app. */
+const nameCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+
+/* Alphabetical by the name as displayed.
+
+   Sorting a visible list of "Mark Albrecht" by surname puts it in an
+   order nobody reading it can see, so the sort key is the string on
+   screen. If the department would rather have surname order, the fix is
+   to store given and family names separately and display them that way —
+   not to sort by something invisible. */
+export const byDisplayName = (a, b) => nameCollator.compare(a.display_name, b.display_name);
+
+export const sortedByName = (people) => [...people].sort(byDisplayName);
+
 /* The roster list.
 
    `showFormer` is EXCLUSIVE: it shows former staff INSTEAD OF current
@@ -138,14 +152,44 @@ export function activePeople(people, now = Date.now()) {
 
    The search covers the external position too, so "pathology" finds the
    outside collaborator whose name you cannot remember. */
-export function filterRoster(people, { showFormer = false, query = "" } = {}, now = Date.now()) {
+export function filterRoster(
+  people,
+  { showFormer = false, query = "", position = "all" } = {},
+  now = Date.now()
+) {
   const q = query.trim().toLowerCase();
   return people
     .filter((p) => (showFormer ? !isPersonActive(p, now) : isPersonActive(p, now)))
+    .filter((p) => position === "all" || p.staff_position === position)
     .filter((p) =>
       !q ||
       p.display_name.toLowerCase().includes(q) ||
       (p.external_position ?? "").toLowerCase().includes(q));
+}
+
+/* How the roster is ordered.
+
+   "Least work first" is the whole reason this control exists. "Which
+   residents have nothing on?" is the question the roster is opened to
+   answer, and answering it by scanning twenty-three rows for a zero is
+   the sort of thing people simply stop doing. */
+export const ROSTER_SORTS = [
+  { code: "name", label: "Name" },
+  { code: "load", label: "Least work first" },
+];
+
+export function sortRoster(people, mode = "name", projects = []) {
+  if (mode !== "load") return sortedByName(people);
+  return [...people].sort((a, b) => {
+    const la = projectLoad(a.id, projects);
+    const lb = projectLoad(b.id, projects);
+    // Active work first, because that is what "busy" means today.
+    if (la.active !== lb.active) return la.active - lb.active;
+    // Then archived, so somebody who has finished things ranks above
+    // somebody who has never had any.
+    if (la.archived !== lb.archived) return la.archived - lb.archived;
+    return byDisplayName(a, b);
+  });
 }
 
 /* Names change. The link is the id, never the name, so a rename is just
