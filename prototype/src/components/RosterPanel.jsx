@@ -1,10 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { X, Plus, Check, Pencil, Search } from "lucide-react";
 import {
   brand, STAFF_POSITIONS, label, personSubtitle, needsExternalPosition, isPersonActive,
   filterRoster, sortRoster, projectLoad, pluralProjects, ROSTER_SORTS,
 } from "../lib/domain.js";
-import { Button, DateInput, Field, Modal, Select, TextInput } from "./primitives.jsx";
+import {
+  Button, DateInput, Field, Select, TextInput, UnsavedChangesDialog,
+} from "./primitives.jsx";
+import { hasChanges, describeDateProblem } from "../lib/projects.js";
 
 /* ---------------------------------------------------------------------
    The roster.
@@ -22,23 +25,21 @@ import { Button, DateInput, Field, Modal, Select, TextInput } from "./primitives
       while leaving every past attribution intact.
    --------------------------------------------------------------------- */
 
-function PersonRow({ person, load, onSave, onShowProjects, now }) {
+function PersonRow({ person, load, onSave, onShowProjects, onEditStateChange, now }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(person);
   const [confirmExit, setConfirmExit] = useState(false);
+  const [dateProblem, setDateProblem] = useState(null);
 
   const start = () => { setDraft(person); setEditing(true); };
 
-  // Same shape of question as the project panel: an edit in progress is
-  // worth asking about rather than throwing away on a stray click.
-  const dirty =
-    draft.display_name !== person.display_name ||
-    draft.staff_position !== person.staff_position ||
-    (draft.external_position ?? "") !== (person.external_position ?? "") ||
-    (draft.employment_end_date ?? "") !== (person.employment_end_date ?? "");
+  // The same comparison the project panel uses. Reverting an edit by hand
+  // leaves nothing to save, and should not put a dialog in the way.
+  const dirty = editing && (hasChanges(draft, person) || Boolean(dateProblem));
+  const canSave = Boolean(draft.display_name.trim()) && !dateProblem;
 
   const commit = () => {
-    if (!draft.display_name.trim()) return;
+    if (!canSave) return;
     onSave(person.id, {
       display_name: draft.display_name,
       staff_position: draft.staff_position,
@@ -52,6 +53,14 @@ function PersonRow({ person, load, onSave, onShowProjects, now }) {
 
   const attemptCancel = () => (dirty ? setConfirmExit(true) : setEditing(false));
   const discard = () => { setConfirmExit(false); setEditing(false); setDraft(person); };
+
+  /* Tell the panel whether this row is holding unsaved work, and how to
+     resolve it, so closing the whole roster can ask the same question
+     rather than silently dropping the edit. */
+  useEffect(() => {
+    onEditStateChange?.(person.id, dirty ? { name: person.display_name, save: commit, discard, canSave } : null);
+    return () => onEditStateChange?.(person.id, null);
+  }, [dirty, draft, canSave]);
 
   const active = isPersonActive(person, now);
 
@@ -160,29 +169,29 @@ function PersonRow({ person, load, onSave, onShowProjects, now }) {
         <DateInput
           value={draft.employment_end_date ?? ""}
           onChange={(iso) => setDraft({ ...draft, employment_end_date: iso })}
+          onStateChange={(st) => setDateProblem(st.problem)}
+          now={now}
           aria-label="End date"
         />
+        {dateProblem && (
+          <span className="block text-xs mt-1" style={{ color: brand.alertText }}>
+            {describeDateProblem(dateProblem, "End date", now)}
+          </span>
+        )}
       </Field>
       <div className="flex gap-2">
-        <Button onClick={commit} disabled={!draft.display_name.trim()}><Check size={14} /> Save</Button>
+        <Button onClick={commit} disabled={!canSave}><Check size={14} /> Save</Button>
         <Button variant="ghost" onClick={attemptCancel}>Cancel</Button>
       </div>
 
       {confirmExit && (
-        <Modal
-          title="You have unsaved changes"
-          tone="danger"
-          onClose={() => setConfirmExit(false)}
-          actions={
-            <>
-              <Button variant="ghost" onClick={() => setConfirmExit(false)}>Keep editing</Button>
-              <Button variant="danger" onClick={discard}>Discard</Button>
-              <Button onClick={commit} disabled={!draft.display_name.trim()}>Save now</Button>
-            </>
-          }
-        >
-          Save your changes to {person.display_name}, keep editing, or discard them.
-        </Modal>
+        <UnsavedChangesDialog
+          what={person.display_name}
+          onSave={commit}
+          onDiscard={discard}
+          onKeepEditing={() => setConfirmExit(false)}
+          saveDisabled={!canSave}
+        />
       )}
     </div>
   );
@@ -195,6 +204,19 @@ export default function RosterPanel({
   const [query, setQuery] = useState("");
   const [position, setPosition] = useState("all");
   const [sortBy, setSortBy] = useState("name");
+  /* Unsaved work anywhere in the panel: a row being edited, or a
+     half-filled "Add someone" form. Closing the panel has to ask about
+     either of them — this was the gap. */
+  const [pendingEdits, setPendingEdits] = useState({});
+  const [confirmExit, setConfirmExit] = useState(false);
+
+  const noteEditState = (id, state) =>
+    setPendingEdits((prev) => {
+      if (!state && !prev[id]) return prev;
+      const next = { ...prev };
+      if (state) next[id] = state; else delete next[id];
+      return next;
+    });
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [newStaffPosition, setNewStaffPosition] = useState("resident");
@@ -215,9 +237,42 @@ export default function RosterPanel({
     setNewName(""); setNewExternalPosition(""); setAdding(false);
   };
 
+  const discardNew = () => {
+    setNewName(""); setNewExternalPosition(""); setAdding(false);
+  };
+
+  /* Anything in flight: a row mid-edit, or a name typed into the add form
+     and not yet committed. */
+  const pending = Object.values(pendingEdits);
+  const addPending = adding && Boolean(newName.trim());
+  const unsaved = pending.length > 0 || addPending;
+
+  const describeUnsaved = () => {
+    if (pending.length === 1) return pending[0].name;
+    if (pending.length > 1) return `${pending.length} people`;
+    return `the new entry for ${newName.trim()}`;
+  };
+
+  const saveEverything = () => {
+    pending.forEach((p) => p.save());
+    if (addPending) commitNew();
+    setConfirmExit(false);
+    onClose();
+  };
+
+  const discardEverything = () => {
+    pending.forEach((p) => p.discard());
+    if (addPending) discardNew();
+    setConfirmExit(false);
+    onClose();
+  };
+
+  const attemptClose = () => (unsaved ? setConfirmExit(true) : onClose());
+  const canSaveAll = pending.every((p) => p.canSave);
+
   return (
     <div className="fixed inset-0 z-40 flex justify-end" role="dialog" aria-label="Roster">
-      <div className="absolute inset-0" style={{ background: "rgba(11,37,69,0.35)" }} onClick={onClose} />
+      <div className="absolute inset-0" style={{ background: "rgba(11,37,69,0.35)" }} onClick={attemptClose} />
       <div
         className="relative w-full max-w-lg h-full overflow-y-auto"
         style={{ background: brand.surface, borderLeft: `1px solid ${brand.border}` }}
@@ -230,7 +285,7 @@ export default function RosterPanel({
                 Renaming someone keeps every project they are on.
               </p>
             </div>
-            <button onClick={onClose} aria-label="Close"><X size={20} style={{ color: brand.slate }} /></button>
+            <button onClick={attemptClose} aria-label="Close"><X size={20} style={{ color: brand.slate }} /></button>
           </div>
         </div>
 
@@ -338,7 +393,7 @@ export default function RosterPanel({
                className="rounded-lg overflow-hidden" style={{ border: `1px solid ${brand.border}` }}>
             {shown.map((p) => (
               <PersonRow key={p.id} person={p} load={loadFor(p.id)} onSave={onSavePerson}
-                         onShowProjects={onShowProjects} now={now} />
+                         onShowProjects={onShowProjects} onEditStateChange={noteEditState} now={now} />
             ))}
             {shown.length === 0 && (
               <p className="text-sm px-3 py-4" style={{ color: brand.slate }}>
@@ -350,6 +405,16 @@ export default function RosterPanel({
               </p>
             )}
           </div>
+
+          {confirmExit && (
+            <UnsavedChangesDialog
+              what={describeUnsaved()}
+              onSave={saveEverything}
+              onDiscard={discardEverything}
+              onKeepEditing={() => setConfirmExit(false)}
+              saveDisabled={!canSaveAll}
+            />
+          )}
 
           <p className="text-xs mt-4 leading-relaxed" style={{ color: brand.slate }}>
             People are never deleted. Historical attribution has to survive residents graduating,

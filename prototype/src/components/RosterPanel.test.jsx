@@ -222,6 +222,131 @@ describe("leaving a half-finished staff edit", () => {
   });
 });
 
+describe("leaving the roster panel with work in progress", () => {
+  /* These are the scenarios the previous round missed. The dialog was
+     wired to the editor's own Cancel button and nothing else, so closing
+     the panel — the commonest way out — dropped the edit silently. The
+     tests covered Cancel and passed, which is exactly why they were worth
+     nothing here. */
+  const editRow = async (user, name) => {
+    const row = rows().find((r) => r.textContent.includes(name));
+    await user.click(within(row).getByRole("button", { name: `Edit ${name}` }));
+  };
+  const closeX = () =>
+    within(screen.getByRole("dialog", { name: "Roster" })).getByRole("button", { name: "Close" });
+  const backdrop = () =>
+    screen.getByRole("dialog", { name: "Roster" }).firstChild;
+  const dialog = () => screen.queryByRole("dialog", { name: "You have unsaved changes" });
+
+  it("asks when the X is clicked mid-edit", async () => {
+    const { onClose, user } = setup();
+    await editRow(user, "Tomi Okafor");
+    await user.type(screen.getByDisplayValue("Tomi Okafor"), "!");
+    await user.click(closeX());
+
+    expect(dialog()).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("asks when you click off the panel mid-edit", async () => {
+    const { onClose, user } = setup();
+    await editRow(user, "Tomi Okafor");
+    await user.type(screen.getByDisplayValue("Tomi Okafor"), "!");
+    await user.click(backdrop());
+
+    expect(dialog()).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("closes straight away when nothing is in flight", async () => {
+    const { onClose, user } = setup();
+    await user.click(closeX());
+    expect(dialog()).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes straight away when an editor is open but untouched", async () => {
+    const { onClose, user } = setup();
+    await editRow(user, "Tomi Okafor");
+    await user.click(closeX());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves the edit and then closes", async () => {
+    const { onSavePerson, onClose, user } = setup();
+    await editRow(user, "Tomi Okafor");
+    await user.type(screen.getByDisplayValue("Tomi Okafor"), "!");
+    await user.click(closeX());
+    await user.click(screen.getByRole("button", { name: "Save now" }));
+
+    expect(onSavePerson).toHaveBeenCalledTimes(1);
+    expect(onSavePerson.mock.calls[0][1].display_name).toBe("Tomi Okafor!");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards and closes", async () => {
+    const { onSavePerson, onClose, user } = setup();
+    await editRow(user, "Tomi Okafor");
+    await user.type(screen.getByDisplayValue("Tomi Okafor"), "!");
+    await user.click(closeX());
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+
+    expect(onSavePerson).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays put when you choose to keep editing", async () => {
+    const { onClose, user } = setup();
+    await editRow(user, "Tomi Okafor");
+    await user.type(screen.getByDisplayValue("Tomi Okafor"), "!");
+    await user.click(closeX());
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByDisplayValue("Tomi Okafor!")).toBeInTheDocument();
+  });
+
+  it("asks about a half-filled Add someone form too", async () => {
+    const { onClose, user } = setup();
+    await user.click(screen.getByRole("button", { name: /Add someone/ }));
+    await user.type(screen.getByLabelText("Full name"), "Nadia Okonkwo");
+    await user.click(closeX());
+
+    expect(dialog()).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("adds the person when that form is saved from the dialog", async () => {
+    const { onAddPerson, onClose, user } = setup();
+    await user.click(screen.getByRole("button", { name: /Add someone/ }));
+    await user.type(screen.getByLabelText("Full name"), "Nadia Okonkwo");
+    await user.click(closeX());
+    await user.click(screen.getByRole("button", { name: "Save now" }));
+
+    expect(onAddPerson).toHaveBeenCalledWith("Nadia Okonkwo", "resident", "");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not ask about an empty Add someone form", async () => {
+    const { onClose, user } = setup();
+    await user.click(screen.getByRole("button", { name: /Add someone/ }));
+    await user.click(closeX());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets you leave once an edit is undone by hand", async () => {
+    const { onClose, user } = setup();
+    await editRow(user, "Tomi Okafor");
+    const box = screen.getByDisplayValue("Tomi Okafor");
+    await user.type(box, "!");
+    await user.keyboard("{Backspace}");     // back to where we started
+    await user.click(closeX());
+
+    expect(dialog()).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("saving a staff edit with the keyboard", () => {
   it("saves on Enter in the name field", async () => {
     const { onSavePerson, user } = setup();

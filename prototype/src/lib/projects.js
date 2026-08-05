@@ -20,6 +20,57 @@ export const PAGE_SIZE = 20;
    The stored value stays ISO yyyy-mm-dd — that is what Postgres wants and
    what sorts correctly. Only the display is American. */
 
+/* A date that could plausibly be meant.
+
+   Not a validity check — 01/01/1200 is a real date — but a sanity one.
+   Nobody entering a due date or an employment end date means the
+   thirteenth century, and a mistyped year is far likelier than a genuine
+   one outside this window. The floor matches `year_seen`'s 1990 so the
+   two do not disagree about what counts as absurd. */
+export const DATE_MIN_YEAR = 1990;
+export const dateMaxYear = (now = Date.now()) => new Date(now).getFullYear() + 10;
+
+export function dateOutOfRange(iso, now = Date.now()) {
+  if (!iso) return false;
+  const year = Number(String(iso).slice(0, 4));
+  if (!Number.isFinite(year)) return true;
+  return year < DATE_MIN_YEAR || year > dateMaxYear(now);
+}
+
+/* Blank or complete — never half.
+
+   `displayDateToIso` returns "" for anything partial, which is right for
+   storage and wrong as the last word: "08/04" would silently save as no
+   date at all, and the person who typed it would never find out. This
+   says whether what is in the box is a state worth saving from. */
+export function dateEntryState(text, now = Date.now()) {
+  const digits = String(text ?? "").replace(/\D/g, "");
+  if (digits.length === 0) return { empty: true, complete: true, problem: null };
+
+  if (digits.length < 8) {
+    return { empty: false, complete: false, problem: "incomplete" };
+  }
+  const iso = displayDateToIso(text);
+  if (!iso) return { empty: false, complete: false, problem: "impossible" };
+  if (dateOutOfRange(iso, now)) {
+    return { empty: false, complete: false, problem: "out-of-range" };
+  }
+  return { empty: false, complete: true, problem: null, iso };
+}
+
+export function describeDateProblem(problem, label, now = Date.now()) {
+  switch (problem) {
+    case "incomplete":
+      return `${label} is only partly filled in. Enter the whole date, or clear it.`;
+    case "impossible":
+      return `${label} is not a real date.`;
+    case "out-of-range":
+      return `${label} must be between ${DATE_MIN_YEAR} and ${dateMaxYear(now)}.`;
+    default:
+      return null;
+  }
+}
+
 export function maskDateInput(raw) {
   const digits = String(raw ?? "").replace(/\D/g, "").slice(0, 8);
   if (digits.length <= 2) return digits;
@@ -35,7 +86,10 @@ export function displayDateToIso(display) {
   if (digits.length !== 8) return "";
   const mm = digits.slice(0, 2), dd = digits.slice(2, 4), yyyy = digits.slice(4);
   const month = Number(mm), day = Number(dd), year = Number(yyyy);
-  if (month < 1 || month > 12 || day < 1 || day > 31 || year < 1900) return "";
+  // Only impossibility is judged here. Whether a real date is a plausible
+  // one is a separate question, and dateEntryState owns it — otherwise
+  // 08/04/1776 reports as "not a real date", which is untrue and unhelpful.
+  if (month < 1 || month > 12 || day < 1 || day > 31 || year < 1) return "";
   // Round-trip through Date to reject 02/31 and friends.
   const d = new Date(Date.UTC(year, month - 1, day));
   if (d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) return "";
@@ -261,6 +315,42 @@ export function paginate(rows, page = 1, pageSize = PAGE_SIZE) {
     to: Math.min(start + pageSize, rows.length),
   };
 }
+
+/* ------------------------------ dirtiness ------------------------------ */
+
+/* Has anything actually changed?
+
+   Tracking edits with a boolean flag says "dirty" the moment a key is
+   pressed and never takes it back, so typing a character and deleting it
+   leaves the form claiming unsaved work and putting a dialog in the way
+   of leaving. Comparing values answers the question that was actually
+   asked: is this different from what we started with?
+
+   Deep by necessity — a project carries nested details and an array of
+   venues, and a shallow compare would miss every edit inside them. */
+export function deepEqual(a, b) {
+  if (a === b) return true;
+  if (a == null || b == null) return a === b;
+  if (typeof a !== "object" || typeof b !== "object") return false;
+
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((item, i) => deepEqual(item, b[i]));
+  }
+
+  // Treat a missing key and an explicitly empty one as the same thing:
+  // a form that writes `notes: ""` where the record had no notes has not
+  // changed anything a person would recognise as a change.
+  const blank = (v) => v === undefined || v === null || v === "";
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    if (blank(a[k]) && blank(b[k])) continue;
+    if (!deepEqual(a[k], b[k])) return false;
+  }
+  return true;
+}
+
+export const hasChanges = (draft, original) => !deepEqual(draft, original);
 
 /* ------------------------------ validation ----------------------------- */
 

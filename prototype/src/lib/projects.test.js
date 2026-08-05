@@ -8,6 +8,12 @@ import {
   maskDateInput,
   displayDateToIso,
   isoToDisplayDate,
+  dateEntryState,
+  describeDateProblem,
+  DATE_MIN_YEAR,
+  dateMaxYear,
+  deepEqual,
+  hasChanges,
   sortProjects,
   paginate,
   pageCount,
@@ -198,6 +204,89 @@ describe("typing a date", () => {
   it("shows nothing for a missing date", () => {
     expect(isoToDisplayDate("")).toBe("");
     expect(isoToDisplayDate(null)).toBe("");
+  });
+});
+
+describe("has anything actually changed", () => {
+  it("says no when a value is edited and put back", () => {
+    // The whole point: a flag says "dirty" forever after one keystroke.
+    const a = project({ title: "A" });
+    expect(hasChanges({ ...a, title: "B" }, a)).toBe(true);
+    expect(hasChanges({ ...a, title: "A" }, a)).toBe(false);
+  });
+
+  it("looks inside nested details", () => {
+    const a = project({ details: { diagnosis: "DGI", year_seen: 2026 } });
+    expect(hasChanges({ ...a, details: { diagnosis: "DGIx", year_seen: 2026 } }, a)).toBe(true);
+    expect(hasChanges({ ...a, details: { diagnosis: "DGI", year_seen: 2026 } }, a)).toBe(false);
+  });
+
+  it("looks inside the venues array, including its order and length", () => {
+    const v = (id, name) => ({ id, venue_name: name });
+    const a = project({ venues: [v("v1", "MDS"), v("v2", "JAAD")] });
+    expect(hasChanges({ ...a, venues: [v("v1", "MDS")] }, a)).toBe(true);
+    expect(hasChanges({ ...a, venues: [v("v2", "JAAD"), v("v1", "MDS")] }, a)).toBe(true);
+    expect(hasChanges({ ...a, venues: [v("v1", "MDS"), v("v2", "JAAD")] }, a)).toBe(false);
+  });
+
+  it("treats a missing field and an empty one as the same", () => {
+    // A form that writes notes: "" where the record had none has not
+    // changed anything a person would call a change.
+    expect(deepEqual({ notes: "" }, {})).toBe(true);
+    expect(deepEqual({ notes: null }, { notes: undefined })).toBe(true);
+    expect(deepEqual({ notes: "x" }, {})).toBe(false);
+  });
+
+  it("does not confuse a zero or a false with an empty", () => {
+    expect(deepEqual({ n: 0 }, {})).toBe(false);
+    expect(deepEqual({ b: false }, {})).toBe(false);
+  });
+});
+
+describe("dates must be whole and plausible", () => {
+  const NOW_2026 = Date.parse("2026-08-04T12:00:00Z");
+
+  it("accepts an empty box — blank is a real answer", () => {
+    expect(dateEntryState("", NOW_2026)).toMatchObject({ empty: true, complete: true, problem: null });
+  });
+
+  it("rejects a half-typed date instead of silently storing nothing", () => {
+    expect(dateEntryState("08", NOW_2026).problem).toBe("incomplete");
+    expect(dateEntryState("08/04", NOW_2026).problem).toBe("incomplete");
+  });
+
+  it("rejects a date that does not exist", () => {
+    expect(dateEntryState("02/31/2026", NOW_2026).problem).toBe("impossible");
+    expect(dateEntryState("13/01/2026", NOW_2026).problem).toBe("impossible");
+  });
+
+  it("rejects years nobody entering a due date could mean", () => {
+    expect(dateEntryState("08/04/1776", NOW_2026).problem).toBe("out-of-range");
+    expect(dateEntryState("08/04/2999", NOW_2026).problem).toBe("out-of-range");
+  });
+
+  it("calls an implausible year implausible, not impossible", () => {
+    // 1776 is a real date. Saying "not a real date" would be untrue.
+    expect(dateEntryState("08/04/1776", NOW_2026).problem).not.toBe("impossible");
+  });
+
+  it("accepts the edges of the window", () => {
+    expect(dateEntryState(`01/01/${DATE_MIN_YEAR}`, NOW_2026).problem).toBeNull();
+    expect(dateEntryState(`12/31/${dateMaxYear(NOW_2026)}`, NOW_2026).problem).toBeNull();
+  });
+
+  it("hands back the ISO value once the entry is whole", () => {
+    expect(dateEntryState("08/04/2026", NOW_2026)).toMatchObject({
+      complete: true, problem: null, iso: "2026-08-04",
+    });
+  });
+
+  it("explains each problem in words worth showing", () => {
+    expect(describeDateProblem("incomplete", "Due date")).toMatch(/only partly filled in/);
+    expect(describeDateProblem("impossible", "Due date")).toMatch(/not a real date/);
+    expect(describeDateProblem("out-of-range", "Due date", NOW_2026))
+      .toMatch(new RegExp(`${DATE_MIN_YEAR}.*${dateMaxYear(NOW_2026)}`));
+    expect(describeDateProblem(null, "Due date")).toBeNull();
   });
 });
 

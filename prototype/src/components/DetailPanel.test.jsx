@@ -218,6 +218,99 @@ describe("closing with unsaved changes", () => {
   });
 });
 
+describe("undoing an edit by hand", () => {
+  it("goes back to clean when the value is restored", async () => {
+    const { user } = setup();
+    await user.type(titleBox(), "!");
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+
+    await user.keyboard("{Backspace}");
+    // Nothing differs from what we started with, so there is nothing to
+    // save and nothing to warn about.
+    expect(screen.getByText("Saved")).toBeInTheDocument();
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("closes without asking once the edit is undone", async () => {
+    const { onClose, user } = setup();
+    await user.type(titleBox(), "!");
+    await user.keyboard("{Backspace}");
+    await user.click(screen.getByRole("button", { name: "Close panel" }));
+
+    expect(screen.queryByRole("dialog", { name: "You have unsaved changes" })).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("notices a restored value inside the nested detail, not just the top level", async () => {
+    const { user } = setup();
+    const diagnosis = screen.getByDisplayValue("DGI");
+    await user.type(diagnosis, "X");
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    await user.keyboard("{Backspace}");
+    expect(screen.getByText("Saved")).toBeInTheDocument();
+  });
+
+  it("notices a restored venue, which lives in an array", async () => {
+    const { user } = setup({
+      venues: [{
+        id: "v1", venue_type: "poster", venue_name: "MDS Annual",
+        other_venue_description: "", submission_status: "accepted", target_date: "", notes: "",
+      }],
+    });
+    await user.click(screen.getByRole("button", { name: /venues/i }));
+    const name = screen.getByDisplayValue("MDS Annual");
+    await user.type(name, "!");
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    await user.keyboard("{Backspace}");
+    expect(screen.getByText("Saved")).toBeInTheDocument();
+  });
+});
+
+describe("dates must be whole, and plausible", () => {
+  const due = () => screen.getByLabelText("Due date");
+
+  it("refuses a half-typed date rather than silently dropping it", async () => {
+    // The partial entry stores nothing, so without this the typing just
+    // disappears on save and nobody is told why.
+    const { onSave, user } = setup();
+    await user.type(due(), "0804");
+    await user.click(saveButton());
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText(/only partly filled in/i)).toBeInTheDocument();
+  });
+
+  it("refuses a date that does not exist", async () => {
+    const { onSave, user } = setup();
+    await user.type(due(), "02312026");
+    await user.click(saveButton());
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText(/not a real date/i)).toBeInTheDocument();
+  });
+
+  it("refuses a year nobody could mean", async () => {
+    const { onSave, user } = setup();
+    await user.type(due(), "08041776");
+    await user.click(saveButton());
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText(/must be between/i)).toBeInTheDocument();
+  });
+
+  it("accepts a cleared date, because blank is a legitimate answer", async () => {
+    const { onSave, user } = setup({ next_action_due_date: "2026-03-09" });
+    await user.clear(due());
+    await user.click(saveButton());
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0].next_action_due_date).toBe("");
+  });
+
+  it("marks the offending box, not just the dialog", async () => {
+    const { user } = setup();
+    await user.type(due(), "0804");
+    expect(due()).toHaveAttribute("aria-invalid", "true");
+  });
+});
+
 describe("saving from the unsaved-changes dialog", () => {
   it("offers all three ways out", async () => {
     const { user } = setup();

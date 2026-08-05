@@ -4,9 +4,13 @@ import {
   brand, TYPES, WORK_STATUSES, SUBMISSION_STATUSES, IRB_STATUSES, CONSENT,
   VENUE_TYPES, STAFF_POSITIONS, label, activePeople,
 } from "../lib/domain.js";
-import { validateProject, changeProjectType, maxYearSeen, formatDate } from "../lib/projects.js";
 import {
-  Badge, Button, DateInput, Field, Modal, Select, TextArea, TextInput, IdentifierNotice,
+  validateProject, changeProjectType, maxYearSeen, formatDate,
+  hasChanges, describeDateProblem,
+} from "../lib/projects.js";
+import {
+  Badge, Button, DateInput, Field, Modal, Select, TextArea, TextInput,
+  IdentifierNotice, UnsavedChangesDialog,
 } from "./primitives.jsx";
 import AuthorPicker from "./AuthorPicker.jsx";
 
@@ -23,6 +27,12 @@ import AuthorPicker from "./AuthorPicker.jsx";
    an attending's typo is a feature. The audit trail in the schema is
    what makes that safe.
    --------------------------------------------------------------------- */
+
+/* Field names for the date-problem messages, so an error reads "Due date
+   is only partly filled in" rather than naming a property. */
+const DATE_LABELS = { next_action_due_date: "Due date" };
+const dateLabelFor = (field) =>
+  field.startsWith("target_date:") ? "Target date" : (DATE_LABELS[field] ?? "That date");
 
 /* Attendings only, per the request. The currently-set person is always
    included even if they have since left or changed role, so opening an
@@ -88,29 +98,48 @@ export default function DetailPanel({
 }) {
   const [tab, setTab] = useState("overview");
   const [draft, setDraft] = useState(project);
-  const [dirty, setDirty] = useState(false);
+  /* What "unchanged" means right now. It starts as the project we were
+     handed and moves forward on every successful save, so the panel does
+     not depend on the parent re-rendering with the new value before it
+     can stop claiming unsaved work. */
+  const [baseline, setBaseline] = useState(project);
   const [errors, setErrors] = useState(null);
+  // Which date boxes currently hold something unsaveable, and why.
+  const [dateProblems, setDateProblems] = useState({});
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [venueToDelete, setVenueToDelete] = useState(null);
 
   // Reset when a different project is opened.
   useEffect(() => {
     setDraft(project);
-    setDirty(false);
+    setBaseline(project);
     setErrors(null);
+    setDateProblems({});
     setTab("overview");
   }, [project.id]);
 
-  const set = (patch) => { setDraft((d) => ({ ...d, ...patch })); setDirty(true); };
-  const setDetail = (patch) => setDraft((d) => {
-    setDirty(true);
-    return { ...d, details: { ...d.details, ...patch } };
-  });
+  /* Dirty is a comparison, not a flag. Typing a character and deleting it
+     used to leave the panel insisting on unsaved work and putting a
+     dialog in the way of leaving; now putting a project back the way you
+     found it simply lets you go. */
+  const dirty = hasChanges(draft, baseline) ||
+                Object.values(dateProblems).some(Boolean);
 
-  const setType = (nextType) => {
-    setDraft((d) => changeProjectType(d, nextType, projects, now()));
-    setDirty(true);
-  };
+  const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
+  const setDetail = (patch) => setDraft((d) => ({ ...d, details: { ...d.details, ...patch } }));
+  const setType = (nextType) => setDraft((d) => changeProjectType(d, nextType, projects, now()));
+
+  const noteDate = (field, state) =>
+    setDateProblems((p) => ({ ...p, [field]: state.problem }));
+
+  /* A half-typed date stores nothing, so without this the entry would
+     just vanish on save and nobody would be told why. */
+  const dateErrors = Object.entries(dateProblems)
+    .filter(([, problem]) => problem)
+    .map(([field, problem]) => ({
+      field,
+      message: describeDateProblem(problem, dateLabelFor(field), now()),
+    }));
 
   const addVenue = () =>
     set({
@@ -133,10 +162,12 @@ export default function DetailPanel({
   };
 
   const save = () => {
-    const found = validateProject(draft, now());
+    const found = [...validateProject(draft, now()), ...dateErrors];
     if (found.length) { setErrors(found); return; }
-    onSave({ ...draft, updated_at: new Date(now()).toISOString() });
-    setDirty(false);
+    const saved = { ...draft, updated_at: new Date(now()).toISOString() };
+    onSave(saved);
+    setBaseline(saved);
+    setDraft(saved);
   };
 
   const attemptClose = () => (dirty ? setConfirmDiscard(true) : onClose());
@@ -146,10 +177,9 @@ export default function DetailPanel({
      and it sent you away to do it. If the draft is invalid this refuses
      and shows why, rather than closing over a failed save. */
   const saveAndClose = () => {
-    const found = validateProject(draft, now());
+    const found = [...validateProject(draft, now()), ...dateErrors];
     if (found.length) { setConfirmDiscard(false); setErrors(found); return; }
     onSave({ ...draft, updated_at: new Date(now()).toISOString() });
-    setDirty(false);
     setConfirmDiscard(false);
     onClose();
   };
@@ -368,6 +398,8 @@ export default function DetailPanel({
                 <Field label="Due">
                   <DateInput value={draft.next_action_due_date}
                              onChange={(iso) => set({ next_action_due_date: iso })}
+                             onStateChange={(st) => noteDate("next_action_due_date", st)}
+                             now={now()}
                              aria-label="Due date" />
                 </Field>
               </div>
@@ -426,6 +458,8 @@ export default function DetailPanel({
                     <Field label="Target date">
                       <DateInput value={v.target_date}
                                  onChange={(iso) => setVenue(v.id, { target_date: iso })}
+                                 onStateChange={(st) => noteDate(`target_date:${v.id}`, st)}
+                                 now={now()}
                                  aria-label="Target date" />
                     </Field>
                   </div>
@@ -500,20 +534,12 @@ export default function DetailPanel({
       )}
 
       {confirmDiscard && (
-        <Modal
-          title="You have unsaved changes"
-          tone="danger"
-          onClose={() => setConfirmDiscard(false)}
-          actions={
-            <>
-              <Button variant="ghost" onClick={() => setConfirmDiscard(false)}>Keep editing</Button>
-              <Button variant="danger" onClick={() => { setConfirmDiscard(false); onClose(); }}>Discard</Button>
-              <Button onClick={saveAndClose}>Save now</Button>
-            </>
-          }
-        >
-          Save them, keep editing, or close and lose them.
-        </Modal>
+        <UnsavedChangesDialog
+          what="this project"
+          onSave={saveAndClose}
+          onDiscard={() => { setConfirmDiscard(false); onClose(); }}
+          onKeepEditing={() => setConfirmDiscard(false)}
+        />
       )}
     </div>
   );

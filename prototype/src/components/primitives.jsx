@@ -1,7 +1,7 @@
 import React, { useEffect, useId } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import { brand, label, toneOf, scanForIdentifiers } from "../lib/domain.js";
-import { maskDateInput, displayDateToIso, isoToDisplayDate } from "../lib/projects.js";
+import { maskDateInput, isoToDisplayDate, dateEntryState } from "../lib/projects.js";
 
 export function Badge({ list, code, small }) {
   const tone = toneOf(list, code);
@@ -108,7 +108,7 @@ export const TextInput = React.forwardRef(function TextInput(props, ref) {
    database stores and what sorts correctly. Only what you see is
    MM/DD/YYYY. A half-typed date reads as empty rather than as a wrong
    date, so nothing partial is ever committed. */
-export function DateInput({ value, onChange, ...props }) {
+export function DateInput({ value, onChange, onStateChange, now = Date.now(), ...props }) {
   const [text, setText] = React.useState(() => isoToDisplayDate(value));
 
   // Follow the value when it changes underneath us — a different project
@@ -121,13 +121,21 @@ export function DateInput({ value, onChange, ...props }) {
     }
   }, [value]);
 
+  const state = dateEntryState(text, now);
+
   const handle = (e) => {
     const masked = maskDateInput(e.target.value);
     setText(masked);
-    const iso = displayDateToIso(masked);
+    const next = dateEntryState(masked, now);
+    const iso = next.iso ?? "";
     lastIso.current = iso;
     onChange?.(iso);
+    // A partial or absurd entry stores nothing, so the owner of the form
+    // has to hear about it separately or the typing just disappears.
+    onStateChange?.(next);
   };
+
+  const bad = Boolean(state.problem);
 
   return (
     <input
@@ -139,9 +147,43 @@ export function DateInput({ value, onChange, ...props }) {
       maxLength={10}
       value={text}
       onChange={handle}
+      aria-invalid={bad || undefined}
       className="w-full rounded-md px-3 py-2 text-sm outline-none focus:ring-2"
-      style={inputStyle}
+      style={{ ...inputStyle, ...(bad ? { borderColor: brand.alertText } : {}) }}
     />
+  );
+}
+
+/* --------------------- one unsaved-changes dialog ---------------------- */
+
+/* Used by the project panel and the roster alike.
+
+   These were two copies of the same dialog with the same three buttons
+   and slightly different words, which is two places to fix anything and
+   two chances to fix only one of them. Anything that is the same thing
+   twice belongs here. */
+export function UnsavedChangesDialog({
+  what,                      // "this project", "Rae LeBlanc"
+  onSave,
+  onDiscard,
+  onKeepEditing,
+  saveDisabled = false,
+}) {
+  return (
+    <Modal
+      title="You have unsaved changes"
+      tone="danger"
+      onClose={onKeepEditing}
+      actions={
+        <>
+          <Button variant="ghost" onClick={onKeepEditing}>Keep editing</Button>
+          <Button variant="danger" onClick={onDiscard}>Discard</Button>
+          <Button onClick={onSave} disabled={saveDisabled}>Save now</Button>
+        </>
+      }
+    >
+      Save your changes to {what}, keep editing, or discard them.
+    </Modal>
   );
 }
 
