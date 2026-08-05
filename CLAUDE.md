@@ -142,6 +142,14 @@ does it for you — **destructively**, so never point it at a database holding r
 
 ## Committing
 
+- **Ask before landing anything: "PR, or commit to main?"** Never commit silently, and
+  never leave finished work sitting uncommitted without saying so — the owner tests
+  against the deployed Pages build, so uncommitted work and a broken fix look identical
+  from their side. If they start reporting bugs while work is uncommitted, say so at once.
+- PRs once this is live; direct-to-main is only acceptable while it is still a demo.
+- CI runs on `pull_request` and on pushes to `main` only, so pushing a bare branch
+  validates nothing — including the database suite, which is the only place the SQL is
+  actually exercised.
 - Never commit: the Supabase `service_role` key, any `.env`, or any `pg_dump` taken
   after the tracker holds real data. The repo is public.
 - The Supabase `anon` key is safe to commit — it is a client identifier protected by
