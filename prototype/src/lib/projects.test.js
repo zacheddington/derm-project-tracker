@@ -571,9 +571,27 @@ describe("changing a project's type", () => {
     expect(changeProjectType(p, "research", existing, NOW)).toBe(p);
   });
 
-  it("touches updated_at, because a retype is an edit", () => {
+  /* This used to assert the opposite — that a retype stamps `updated_at`
+     — and that is what broke "put it back and there is nothing to save".
+     changeProjectType edits a DRAFT. The draft is compared against the
+     last saved state to decide whether Save has anything to do, so
+     stamping the clock here made the two differ on a field the person
+     never touched. Switching to Review and back to Research left the type
+     identical and the timestamp different, and the panel demanded a save
+     for a project nobody had changed. The save path stamps it, which is
+     the moment it becomes true. */
+  it("does not stamp updated_at, because it edits a draft rather than saving", () => {
     const p = project({ project_type: "research", updated_at: daysAgo(50) });
-    expect(changeProjectType(p, "review", existing, NOW).updated_at)
-      .toBe(new Date(NOW).toISOString());
+    expect(changeProjectType(p, "review", existing, NOW).updated_at).toBe(p.updated_at);
+  });
+
+  it("leaves nothing to save once the type is switched back", () => {
+    const p = project({ project_type: "research", details: { description: "Some study" } });
+    const away = changeProjectType(p, "review", existing, NOW);
+    expect(hasChanges(away, p)).toBe(true);
+
+    const back = changeProjectType(away, "research", existing, NOW);
+    expect(back.project_type).toBe("research");
+    expect(hasChanges(back, p)).toBe(false);
   });
 });

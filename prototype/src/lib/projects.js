@@ -404,7 +404,15 @@ export const maxYearSeen = (now = Date.now()) => new Date(now).getFullYear();
    Detail fields are kept in one bag and rendered by type, so switching
    away and back does not discard what was typed. A case ID, once issued,
    is never reissued or renumbered — the sequence is a count of case
-   reports opened that year, and burning a number would make it lie. */
+   reports opened that year, and burning a number would make it lie.
+
+   This does NOT touch `updated_at`. It edits a draft, not a saved record,
+   and the draft is compared against the last saved state to decide
+   whether there is anything to save. Stamping the clock here made a type
+   change permanently unsaveable-away-from: switching to Review and back
+   to Research left the type identical and the timestamp different, so the
+   panel insisted on unsaved work for a project nobody had changed. The
+   save path stamps `updated_at`, which is the moment it becomes true. */
 export function changeProjectType(project, nextType, allProjects, now = Date.now()) {
   if (project.project_type === nextType) return project;
   const details = { ...project.details };
@@ -413,5 +421,5 @@ export function changeProjectType(project, nextType, allProjects, now = Date.now
     details.case_number = nextCaseId(allProjects, ay);
     details.patient_consent_obtained = details.patient_consent_obtained ?? "not_yet";
   }
-  return { ...project, project_type: nextType, details, updated_at: new Date(now).toISOString() };
+  return { ...project, project_type: nextType, details };
 }

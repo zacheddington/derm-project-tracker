@@ -184,7 +184,9 @@ have unsaved work.
 - **Trying to leave with unsaved changes asks first**, and offers to save for you rather
   than sending you back to do it yourself.
 - **Undoing an edit by hand counts as no change.** Typing a character and deleting it
-  does not leave the form insisting you have unsaved work.
+  does not leave the form insisting you have unsaved work. The same is true of the type
+  buttons: switch a project to Review, change your mind, switch it back, and there is
+  nothing to save — an already-issued case number survives the round trip either way.
 - **A project cannot be saved without a title, or without at least one author.** You can
   still remove the last author while editing — you have to be able to take the wrong name
   off before putting the right one on — but saving that way is refused, with an

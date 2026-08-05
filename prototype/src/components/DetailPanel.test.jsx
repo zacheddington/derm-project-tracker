@@ -241,6 +241,35 @@ describe("undoing an edit by hand", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  /* The type buttons are an edit like any other, and this one did not
+     come back. changeProjectType stamped `updated_at`, so switching away
+     and back left the type identical and the timestamp different — the
+     panel demanded a save for a project nobody had changed, and Cancel
+     put an unsaved-changes dialog in the way of leaving. */
+  it("goes back to clean when the project type is switched back", async () => {
+    const { user } = setup({ project_type: "research", details: { description: "Some study" } });
+    const typeGroup = within(screen.getByRole("dialog")).getByRole("group", { name: "Type" });
+
+    await user.click(within(typeGroup).getByRole("button", { name: "Review" }));
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+
+    await user.click(within(typeGroup).getByRole("button", { name: "Research" }));
+    expect(screen.getByText("Saved")).toBeInTheDocument();
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("closes without asking after a type is switched back", async () => {
+    const { onClose, user } = setup({ project_type: "research", details: { description: "Some study" } });
+    const typeGroup = within(screen.getByRole("dialog")).getByRole("group", { name: "Type" });
+
+    await user.click(within(typeGroup).getByRole("button", { name: "Review" }));
+    await user.click(within(typeGroup).getByRole("button", { name: "Research" }));
+    await user.click(screen.getByRole("button", { name: "Close panel" }));
+
+    expect(screen.queryByRole("dialog", { name: "You have unsaved changes" })).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("notices a restored value inside the nested detail, not just the top level", async () => {
     const { user } = setup();
     const diagnosis = screen.getByDisplayValue("DGI");
@@ -461,15 +490,32 @@ describe("deleting a venue", () => {
 });
 
 describe("changing the project type", () => {
+  const typeButtons = () => within(screen.getByRole("dialog")).getByRole("group", { name: "Type" });
+
+  /* This used to save and inspect the payload, which only worked because
+     a retype stamped `updated_at` and left the draft permanently dirty.
+     A round trip now genuinely changes nothing, so Save is correctly
+     disabled — and the case number has to be checked where it shows. */
   it("keeps a case number that was already issued", async () => {
-    const { onSave, user } = setup();
-    await user.click(screen.getByRole("button", { name: "Research" }));
-    await user.click(screen.getByRole("button", { name: "Case report" }));
-    await user.click(saveButton());
+    const { user } = setup();
+    await user.click(within(typeButtons()).getByRole("button", { name: "Research" }));
+    await user.click(within(typeButtons()).getByRole("button", { name: "Case report" }));
 
     // Burning a second number would make "how many case reports this year"
     // overcount.
+    expect(screen.getByText("CR-2026-001")).toBeInTheDocument();
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("carries the preserved case number into the save when something else changed", async () => {
+    const { onSave, user } = setup();
+    await user.click(within(typeButtons()).getByRole("button", { name: "Research" }));
+    await user.click(within(typeButtons()).getByRole("button", { name: "Case report" }));
+    await user.type(titleBox(), "!");
+    await user.click(saveButton());
+
     expect(onSave.mock.calls[0][0].details.case_number).toBe("CR-2026-001");
+    expect(onSave.mock.calls[0][0].project_type).toBe("case_report");
   });
 
   it("swaps which detail fields are shown", async () => {
