@@ -397,7 +397,7 @@ begin
 end;
 $$;
 
-create trigger case_report_assign_case_id
+create trigger case_report_assign_case_number
   before insert on case_report_details
   for each row execute function assign_case_number();
 

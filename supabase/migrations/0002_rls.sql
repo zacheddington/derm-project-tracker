@@ -140,9 +140,17 @@ begin
   limit 1;
 
   if existing is not null then
+    -- Linking an account does NOT clear employment_end_date. Signing in
+    -- says "this account is that roster row"; it does not say "this
+    -- person still works here". Clearing it here made the one column
+    -- that guard_people_privileged_columns reserves to an admin settable
+    -- by anyone who could obtain an account on that address — a person
+    -- who had left and whose row had never been linked would be restored
+    -- to current staff by the act of signing in, with no admin involved
+    -- and nothing in the roster to show it happened. Bringing someone
+    -- back is an admin's edit.
     update people
       set auth_user_id = new.id,
-          employment_end_date = null,
           updated_at   = now()
       where id = existing;
   else
@@ -383,7 +391,7 @@ create policy app_settings_write on app_settings
   for all to authenticated using (is_admin()) with check (is_admin());
 
 -- case_number_counters is written only by the SECURITY DEFINER trigger.
-create policy case_id_counters_read on case_number_counters
+create policy case_number_counters_read on case_number_counters
   for select to authenticated using (is_admin());
 
 -- ---------------------------------------------------------------------

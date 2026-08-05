@@ -88,6 +88,33 @@ do $t$ begin
                  'non-UMMC email is refused at signup', 'not permitted');
 end $t$;
 
+-- Signing in links a roster row. It does not undo a departure.
+--
+-- The link branch of handle_new_auth_user used to set
+-- employment_end_date = null, so someone who had left — and whose roster
+-- row had never been linked to an account — was restored to current staff
+-- simply by signing in. employment_end_date is the column the privilege
+-- guard reserves to an admin precisely because it decides who is still a
+-- member; a path that clears it without an admin defeats that guard.
+insert into people (display_name, email, staff_position, employment_end_date)
+  values ('Jordan Pike', 'jpike@umc.edu', 'resident', current_date - 30);
+
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('44444444-4444-4444-4444-444444444444', 'jpike@umc.edu', '{"full_name":"Jordan Pike"}');
+
+do $t$ begin
+  perform ok((select auth_user_id from people where email = 'jpike@umc.edu')
+               = '44444444-4444-4444-4444-444444444444'::uuid,
+             'signing in links the existing roster entry rather than duplicating it');
+  perform ok((select count(*) from people where email = 'jpike@umc.edu') = 1,
+             'linking reuses the roster row');
+  perform ok((select employment_end_date from people where email = 'jpike@umc.edu') is not null,
+             'signing in does not silently reverse a departure');
+  perform ok(not is_currently_employed(
+               (select employment_end_date from people where email = 'jpike@umc.edu')),
+             'a person who has left is still shown as gone after they sign in');
+end $t$;
+
 -- A test of the test. denied() reports "zero rows affected" as a pass,
 -- which is correct for RLS and dangerous for a typo: a WHERE clause that
 -- matches nothing looks identical. Every denial that targets a specific
