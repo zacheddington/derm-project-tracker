@@ -30,6 +30,7 @@ CLAUDE.md               project context loaded by Claude Code every session
 docs/SPEC.md            the original build specification
 docs/DECISIONS.md       what was decided and why, plus the open questions (one copy)
 docs/FEATURES.md        the client-facing rundown of what the site does
+docs/RUNNING-COSTS.md   what hosting, the database and maintenance actually cost
 docs/AUDIT.md           scratchpad for an in-progress audit; cleared on commit
 prototype/              Vite + React UI prototype (deployed to Pages)
   src/ProjectTracker.jsx    the app: list, filters, table, pagination
