@@ -124,6 +124,89 @@ does it for you — **destructively**, so never point it at a database holding r
 - **Never hard-delete a person attached to a project.** Deactivate. Historical
   attribution has to survive residents graduating.
 
+## Removing functionality
+
+A feature is not removed until nothing in the repo still refers to it. Half a removal is
+worse than none: the leftovers read as an accident, and the next person restores the
+feature from the evidence you left behind. That has already happened here once, with
+`purpose`.
+
+Delete, in the same commit:
+
+- the UI, and the logic behind it
+- the column, its constraints, its index, its search weighting, its line in every view
+- the seed and fixture values
+- **the test scenarios for it** — a test for a feature that does not exist is noise, and
+  it will be read as a specification
+- **every description of it** — `docs/FEATURES.md`, `README.md`, `docs/SPEC.md`, and any
+  comment or placeholder that names it. Documentation of something that no longer exists
+  is worse than no documentation, because it is believed.
+
+Then add **one** entry to `docs/DECISIONS.md` saying what went and why. That entry is the
+only thing that should survive, and it is not a description of the feature — it is the
+reason the feature is absent, which is what stops it coming back. Keep it short.
+
+Two supporting notes:
+
+- **Grep before you call it done.** `grep -rn "<name>" .` should return the decision entry
+  and nothing else.
+- **Keep an "it is not there" test only when its absence is load-bearing** — something a
+  reader would otherwise restore, as `purpose` was. One test across all the cases it could
+  reappear in, pointing at the decision entry. Not a tombstone for every deleted button.
+
+## The bug this codebase keeps having
+
+Every user-reported bug here has had the same shape: **a rule applied at one site instead
+of at the level it belongs to.** The code looks right where you look, and is wrong one
+field over.
+
+- `Enter` saved from the roster's name box and nowhere else — the handler was on that one
+  input rather than on the form.
+- `createProject` wrote `type` while every reader wanted `project_type`; `addPerson`
+  wrote `role` while every reader wanted `staff_position`.
+- `changeProjectType` stamped `updated_at`, so switching type and switching back left a
+  project permanently unsaved — the one edit path that broke "put it back and there is
+  nothing to save".
+
+All three passed a full green suite. So when reviewing, the question is not "does this
+work?" but **"does the rule hold everywhere it should, and is it expressed once?"**
+
+Three smells worth stopping on:
+
+1. **A handler bound to one specific control** where the behaviour is really the form's,
+   the panel's, or the list's. Bind it at that level instead.
+2. **A writer naming a field differently from its readers.** Record-building is logic:
+   it lives in `lib/` (`newProject`, `newPerson`) precisely so a test can reach it. Both
+   name bugs lived in `ProjectTracker.jsx` because that was the file nothing tested.
+3. **A draft-time operation touching a saved-time field.** `updated_at` is stamped when
+   something is saved, never while it is being edited — dirty is a comparison against the
+   last saved state, so any extra difference makes it permanent.
+
+### Write tests that enumerate, not tests that name one case
+
+This is the part that actually prevents recurrence. A test naming one field catches the
+bug you already know about; a test that walks whatever is really there catches the next
+one, including things added after the test was written.
+
+- `RosterPanel.test.jsx` presses Enter in **every input the edit form contains**, found at
+  runtime, and reports which one failed. A fifth field wired up wrong fails it with no new
+  test written.
+- `ProjectTracker.test.jsx` compares the **whole key set** of a created record against a
+  seeded one, rather than asserting named fields are present. A renamed or dropped field
+  fails it in milliseconds, whatever it was renamed to.
+- `it.each` over `TYPES` rather than picking one type. Both name bugs were invisible for
+  three of the four.
+- `schema-parity.test.js` reads the SQL rather than restating it.
+
+### A test that asserts what the code does is not a test of the rule
+
+Two tests here actively held bugs in place: one asserted the created project's field was
+called `type`, and one asserted `changeProjectType` "touches updated_at, because a retype
+is an edit". Both were written from the implementation rather than from the requirement,
+so they turned a defect into a specification.
+
+When a test fails after a fix, decide which is wrong before making it green.
+
 ## Pitfalls
 
 - **RLS denies writes by matching zero rows, not by raising.** A blocked `UPDATE`
