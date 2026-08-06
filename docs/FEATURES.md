@@ -101,11 +101,10 @@ A few deliberate details:
 ### Finding things
 
 **The search box** looks at everything: titles, project types, statuses, author names,
-venues, purposes, notes, diagnoses, and case numbers. If a word is visible on the table
-you can search for it, and several useful things that are *not* on the table — the
-purpose, the notes, the diagnosis — are searchable too. That means a search can match a
-row without showing you why, which is a fair trade for being able to find "the gliptin
-one" from memory.
+venues, notes, diagnoses, and case numbers. If a word is visible on the table you can
+search for it, and the two useful things that are *not* on the table — the notes and the
+diagnosis — are searchable too. That means a search can match a row without showing you
+why, which is a fair trade for being able to find "the gliptin one" from memory.
 
 **The filters** narrow by type, work status, author, and academic year. Authors are
 listed alphabetically; academic years newest first; statuses stay in workflow order —
@@ -144,7 +143,6 @@ Clicking any row opens a panel with three tabs.
   determination
 - **Author(s)** — add or remove anyone; new people can be added to the roster without
   leaving the form
-- **Purpose** — the goal, or why this matters
 - **Next action** and a **due date**
 
 Then a section that changes with the project type:

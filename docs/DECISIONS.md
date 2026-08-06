@@ -307,17 +307,20 @@ these features were still absent; they could never fail unless someone deliberat
 re-added the feature, and they left a new reader wondering what a staleness banner was.
 A decision log is the right place for "we removed this on purpose".
 
-## 2026-08-05 — `purpose` is back in the detail panel
+## 2026-08-05 — `purpose` is gone, everywhere
 
-It should never have left. `projects.purpose` is spec §5, it is a real column, it is
-weighted into the search vector, `project_export` selects it, the prototype's search
-box offers it by name in its own placeholder — and the panel had no field for it. The
-only purposes in the system were the ones the seed data shipped with, and the app
-invited people to search a field it gave them no way to write.
+Removed: the form field, the `projects.purpose` column, its weighting in the search
+vector, its line in `project_export`, the seed values, the spec row, and the search box's
+mention of it. Nothing in the system refers to it.
 
-There was no decision recorded for removing it, and a test asserting its absence was
-holding the gap open. Restored as an optional textarea under Author(s), with the
-identifier tripwire attached like the other free-text fields.
+It was a second free-text box competing with `notes` and with each type's `description`,
+answering a question those already answer, on a form whose point is capturing an idea in
+under thirty seconds.
+
+It was removed once before without this entry, and put back within the hour by someone
+who found the column still in the schema and reasonably concluded the panel had lost the
+field by accident. **A removal is only finished when the traces are gone and the reason
+is written down.** That is now the rule in `CLAUDE.md`.
 
 ## 2026-08-05 — Lint is one rule, and it is not about style
 

@@ -32,7 +32,6 @@ const project = (over = {}) => ({
   project_type: "research",
   work_status: "idea",
   authors: ["p1"],
-  purpose: "",
   notes: "",
   details: {},
   venues: [],
@@ -105,9 +104,9 @@ describe("filtering", () => {
   });
 
   it("still searches what the table does not show", () => {
-    // Purpose, notes, diagnosis and case number stay searchable. A hit can
-    // land on a row without visibly showing why, and that is the accepted
-    // cost of being able to find a project from memory.
+    // Notes, diagnosis and case number stay searchable. A hit can land on
+    // a row without visibly showing why, and that is the accepted cost of
+    // being able to find a project from memory.
     expect(ids({ q: "alopecia" })).toEqual(["a"]);
     expect(ids({ q: "pemphigoid" })).toEqual(["b"]);     // title AND diagnosis
     expect(ids({ q: "CR-2025" })).toEqual(["b"]);        // case number

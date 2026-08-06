@@ -162,7 +162,7 @@ export const EMPTY_FILTERS = {
    match the Type column, an author's name has to match the Authors
    column, a venue has to match Venues.
 
-   Everything HIDDEN but useful stays searchable too — purpose, notes,
+   Everything HIDDEN but useful stays searchable too — notes and
    diagnosis. Those are where the substance of a project lives, and losing
    them would make the box worse at the one job it is best at. The cost is
    that a hit can land on a row without showing why; that is a fair trade
@@ -177,7 +177,6 @@ function searchableText(project, nameOf = (id) => id) {
     ...project.venues.map((v) => v.venue_name),
     ...project.venues.map((v) => v.other_venue_description),
     // Not on the table, but worth finding by
-    project.purpose,
     project.notes,
     project.details?.diagnosis,
     project.details?.case_number,
@@ -397,6 +396,54 @@ export function validateProject(draft, now = Date.now()) {
 export const maxYearSeen = (now = Date.now()) => new Date(now).getFullYear();
 
 /* --------------------------- changing the type -------------------------- */
+
+/* A new project record, built in one place a test can reach.
+
+   Both of the field-name bugs this codebase has had were here, inside the
+   component, where nothing could get at them: `type` instead of
+   `project_type` produced a project with a blank badge that no tile
+   counted and no filter could find, and the suite stayed green because
+   nothing asserted what the app actually WROTE.
+
+   IRB starts "Not applicable" for every type. A status nobody chose
+   should claim the least, most QA/QI work and every review never goes
+   near an IRB, and it matches the column default in 0001_schema.sql. */
+export function newProject({ title, project_type, authors }, allProjects = [], now = Date.now()) {
+  const stamp = new Date(now).toISOString();
+  const academic_year = academicYearOf(new Date(now));
+  return {
+    id: `x${now}`,
+    title,
+    project_type,
+    authors,
+    work_status: "idea",
+    notes: "",
+    next_action: "",
+    next_action_due_date: "",
+    irb_status: "not_applicable",
+    academic_year,
+    created_at: stamp,
+    updated_at: stamp,
+    archived_at: null,
+    details:
+      project_type === "case_report"
+        ? {
+            case_number: nextCaseId(allProjects, academic_year),
+            diagnosis: "",
+            why_unique: "",
+            attending_id: "",
+            /* Defaulted on creation and nowhere else. Most case reports
+               are written up in the year they were seen, so this is right
+               far more often than wrong — and it stays editable. Applying
+               the same default on edit would silently rewrite the year of
+               every old case report somebody opened. */
+            year_seen: new Date(now).getFullYear(),
+            patient_consent_obtained: "not_yet",
+          }
+        : { description: "" },
+    venues: [],
+  };
+}
 
 /* Someone picks the wrong type on capture; that must be fixable without
    recreating the project and losing its history.

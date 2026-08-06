@@ -166,7 +166,6 @@ the picker is.
 | `type` | Enum: case_report, qa_qi, research, review |
 | `work_status` | See §6 |
 | `owners` | Many-to-many with people, at least one required |
-| `purpose` | Free text — the goal, impact, or "why this matters" |
 | `notes` | Free text, generous size. This is the notepad. Markdown-rendered. |
 | `next_action` | Optional short text |
 | `next_action_due` | Optional date |
@@ -278,7 +277,7 @@ Real projects move backwards.
 ### Must have
 
 - Project list view with filter by type, work status, owner, academic year, and archived state
-- Free-text search across title, purpose, notes, and diagnosis
+- Free-text search across title, notes, and diagnosis
 - Create / edit / archive project
 - Owner picker with typeahead against the people roster, plus inline "add new person"
   without leaving the form

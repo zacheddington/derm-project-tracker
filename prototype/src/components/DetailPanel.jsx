@@ -269,16 +269,11 @@ export default function DetailPanel({
                               onAddPerson={onAddPerson} now={now()} />
               </Field>
 
-              {/* Spec §5: the goal, the impact, "why this matters". The panel
-                  had stopped offering it while the column, the search index,
-                  the export view and the search box's own placeholder all
-                  still referred to it — so the app invited you to search a
-                  field it gave you no way to write. */}
-              <Field label="Purpose" hint="The goal, or why this matters. Optional.">
-                <TextArea rows={2} value={draft.purpose || ""}
-                          onChange={(e) => set({ purpose: e.target.value })} />
-                <IdentifierNotice text={draft.purpose} />
-              </Field>
+              {/* There is deliberately no Purpose field. See
+                  docs/DECISIONS.md — it was removed on purpose, and put
+                  back once by someone who found the column still in the
+                  schema and assumed the panel had lost it by accident. Do
+                  not restore it without a decision that says to. */}
 
               {draft.project_type === "case_report" && (
                 <div className="rounded-lg p-4 mt-2" style={{ background: brand.surface, border: `1px solid ${brand.border}` }}>

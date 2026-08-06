@@ -210,7 +210,6 @@ create table projects (
   project_type         project_type not null,
   work_status          text not null default 'idea'
                          references work_statuses(code) on update cascade,
-  purpose              text,              -- the goal / why this matters
   notes                text,              -- the notepad. Markdown-rendered.
   next_action          text,
   next_action_due_date date,
@@ -456,7 +455,7 @@ create trigger review_type_guard before insert or update on review_details
 -- ---------------------------------------------------------------------
 -- 9. Free-text search (§7)
 -- ---------------------------------------------------------------------
--- Across title, purpose, notes and diagnosis. Diagnosis lives in a child
+-- Across title, notes and diagnosis. Diagnosis lives in a child
 -- table, so the vector is trigger-maintained rather than generated.
 
 -- SECURITY DEFINER: this fires during INSERT, before the project has an
@@ -470,7 +469,6 @@ as $$
   update projects p set search_vector =
       setweight(to_tsvector('english', coalesce(p.title, '')),   'A')
     || setweight(to_tsvector('english', coalesce(c.diagnosis, '')), 'A')
-    || setweight(to_tsvector('english', coalesce(p.purpose, '')), 'B')
     || setweight(to_tsvector('english', coalesce(p.notes, '')),   'C')
   from (select 1) _
   left join case_report_details c on c.project_id = p_id
@@ -488,7 +486,7 @@ end;
 $$;
 
 create trigger projects_search_sync
-  after insert or update of title, purpose, notes on projects
+  after insert or update of title, notes on projects
   for each row execute function projects_search_sync();
 
 create or replace function case_details_search_sync()

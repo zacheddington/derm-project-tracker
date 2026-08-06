@@ -13,7 +13,6 @@ const project = (over = {}) => ({
   project_type: "case_report",
   work_status: "in_edit",
   authors: ["p1", "p2"],
-  purpose: "",
   notes: "",
   next_action: "",
   next_action_due_date: "",
@@ -140,7 +139,7 @@ describe("the exported sheet mirrors the table", () => {
 
   it("no longer carries fields that were never on the table", () => {
     for (const gone of [
-      "purpose", "diagnosis", "why_unique", "year_seen", "consent",
+      "diagnosis", "why_unique", "year_seen", "consent",
       "attending", "description", "irb_status", "academic_year",
       "resident_authors", "next_action_due_date", "created_at",
       "archived", "archived_at",

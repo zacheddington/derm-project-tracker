@@ -32,7 +32,6 @@ const project = (over = {}) => ({
   project_type: "case_report",
   work_status: "in_edit",
   authors: ["p1", "p2"],
-  purpose: "",
   notes: "",
   next_action: "",
   next_action_due_date: "",
@@ -379,22 +378,22 @@ describe("saving from the unsaved-changes dialog", () => {
 });
 
 describe("where the project-level fields sit", () => {
-  /* Purpose is spec §5 and a real column, it is indexed for search, it is
-     in the export view, and the search box offers it by name. The panel
-     had stopped rendering it, so the only purposes in the system were the
-     ones the seed data shipped with. The test that used to live here
-     asserted its absence, which kept the gap in place. */
-  it("asks for a purpose, and saves what is typed", async () => {
-    const { onSave, user } = setup();
-    await user.type(screen.getByLabelText(/^Purpose/), "Because the referral volume is unsafe.");
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-    expect(onSave.mock.calls[0][0].purpose).toBe("Because the referral volume is unsafe.");
-  });
+  /* No Purpose field, on any type, deliberately — docs/DECISIONS.md.
 
-  it("shows an existing purpose rather than a blank box", () => {
-    setup({ purpose: "Atypical sequence of findings." });
-    expect(screen.getByLabelText(/^Purpose/)).toHaveValue("Atypical sequence of findings.");
-  });
+     This assertion is not decoration. It existed, was deleted in an audit
+     as a "tombstone" guarding a feature nobody would re-add, and the
+     feature was re-added within the hour by someone who saw `purpose`
+     still in the schema and the search placeholder and assumed the panel
+     had lost it by accident. A removal with no decision written down and
+     no test defending it is not a removal; it is a race. */
+  it.each(["case_report", "qa_qi", "research", "review"])(
+    "does not ask for a purpose on a %s",
+    (project_type) => {
+      setup({ project_type, details: { description: "d" } });
+      expect(screen.queryByLabelText(/^Purpose/)).toBeNull();
+      expect(screen.queryByText(/why this matters/i)).toBeNull();
+    }
+  );
 
   it("still keeps next action and its due date", () => {
     setup();

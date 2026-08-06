@@ -203,9 +203,8 @@ declare pid uuid; rae uuid;
 begin
   select id into rae from people where email = 'rleblanc@umc.edu';
 
-  insert into projects (title, project_type, purpose, created_by)
-    values ('Disseminated gonococcal rash', 'case_report',
-            'Atypical presentation worth writing up', rae)
+  insert into projects (title, project_type, created_by)
+    values ('Disseminated gonococcal rash', 'case_report', rae)
     returning id into pid;
   insert into project_authors (project_id, person_id) values (pid, rae);
   insert into case_report_details (project_id, diagnosis, why_unique)

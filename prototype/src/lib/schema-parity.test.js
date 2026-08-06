@@ -81,7 +81,7 @@ describe("column names the UI writes to exist in the schema", () => {
   it.each([
     "display_name", "staff_position", "permission_level", "pgy_level",
     "external_position", "employment_end_date", "merged_into",
-    "title", "project_type", "work_status", "purpose", "notes",
+    "title", "project_type", "work_status", "notes",
     "next_action", "next_action_due_date", "irb_status", "academic_year",
     "archived_at", "case_number", "diagnosis", "why_unique", "attending_id",
     "year_seen", "patient_consent_obtained",

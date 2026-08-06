@@ -38,7 +38,6 @@ select
     where pa.project_id = p.id
       and pe.staff_position = 'resident')               as resident_authors,
   p.irb_status,
-  p.purpose,
   p.next_action,
   p.next_action_due_date,
 
