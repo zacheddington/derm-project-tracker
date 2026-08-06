@@ -85,14 +85,48 @@ export const inputStyle = {
   color: brand.navy,
 };
 
+/* The identifier tripwire is built into the input, not bolted onto the
+   fields somebody remembered.
+
+   It used to be four explicit `<IdentifierNotice>` tags next to four
+   boxes — title, why-it-is-unique, notes, and the capture title — while
+   fifteen other free-text boxes had none. Diagnosis was one of them,
+   which meant the single field most likely to attract an MRN was the one
+   not watching for it. Anything typed into a box the reviewer forgot is
+   exactly the PHI that reaches the database.
+
+   So every free-text box scans, and a box added next year scans without
+   anyone remembering. Two exclusions, both deliberate:
+
+   - `type="number"` — a year or a PGY level cannot carry an identifier.
+   - `DateInput` builds its own <input> and so never reaches here, which
+     is essential: a full date IS one of the patterns, so a date box that
+     scanned itself would warn on every correctly-filled date.
+
+   Search boxes are plain <input>s rather than TextInput, so they do not
+   scan either. That is on purpose — a search term is not stored, and the
+   warning there would be noise on a field that cannot leak anything. */
+function scannable(props) {
+  return props.type !== "number" && typeof props.value === "string";
+}
+
 export const TextInput = React.forwardRef(function TextInput(props, ref) {
-  return (
+  const input = (
     <input
       {...props}
       ref={ref}
       className={`w-full rounded-md px-3 py-2 text-sm outline-none focus:ring-2 ${props.className || ""}`}
       style={{ ...inputStyle, ...(props.style || {}) }}
     />
+  );
+  if (!scannable(props)) return input;
+  // Wrapped so the notice sits under its own box rather than becoming a
+  // sibling of it — several callers put these directly in a grid.
+  return (
+    <div>
+      {input}
+      <IdentifierNotice text={props.value} />
+    </div>
   );
 });
 
@@ -241,13 +275,23 @@ export function Select({ options, ...props }) {
   );
 }
 
+/* Scans, for the same reason TextInput does. The notepad and the
+   why-it-is-unique box are the two places someone is most likely to
+   paste a chunk of a chart. */
 export function TextArea(props) {
-  return (
+  const area = (
     <textarea
       {...props}
       className="w-full rounded-md px-3 py-2 text-sm outline-none focus:ring-2 leading-relaxed"
       style={inputStyle}
     />
+  );
+  if (!scannable(props)) return area;
+  return (
+    <div>
+      {area}
+      <IdentifierNotice text={props.value} />
+    </div>
   );
 }
 

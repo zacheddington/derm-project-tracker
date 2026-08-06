@@ -404,6 +404,41 @@ describe("saving a staff edit with the keyboard", () => {
     }
   });
 
+  /* The roster's boxes carry the identifier tripwire too. A name field is
+     an unlikely place to paste an MRN, which is exactly why it was one of
+     the fields that had no warning on it. */
+  it("warns on every free-text box in the edit form", async () => {
+    const { user } = setup();
+    const row = rows().find((r) => r.textContent.includes("Ben Iwu"));
+    await user.click(within(row).getByRole("button", { name: "Edit Ben Iwu" }));
+    const form = document.querySelector('[role="listitem"] form');
+
+    const boxes = [...form.querySelectorAll("input")].filter(
+      (el) => el.inputMode !== "numeric" && el.type !== "number"   // not the date box
+    );
+    expect(boxes.length).toBeGreaterThanOrEqual(2);   // name, free-text position
+
+    for (const box of boxes) {
+      const label = box.getAttribute("aria-label") || box.placeholder || "<input>";
+      await user.clear(box);
+      await user.type(box, "MRN");
+      expect(
+        within(form).queryAllByText(/looks like it contains/i).length,
+        `no identifier warning for ${label}`
+      ).toBeGreaterThan(0);
+      await user.clear(box);
+    }
+  });
+
+  it("does not warn on the end date, because a date is one of the patterns", async () => {
+    const { user } = setup();
+    const row = rows().find((r) => r.textContent.includes("Tomi Okafor"));
+    await user.click(within(row).getByRole("button", { name: "Edit Tomi Okafor" }));
+
+    await user.type(screen.getByLabelText("End date"), "06302027");
+    expect(screen.queryAllByText(/looks like it contains/i)).toHaveLength(0);
+  });
+
   /* The specific fields that were broken, kept as named scenarios so a
      failure says which one rather than just "index 2". The loop above
      proves the rule; these say where it hurt. */

@@ -377,6 +377,93 @@ describe("saving from the unsaved-changes dialog", () => {
   });
 });
 
+/* The tripwire is on EVERY free-text box, found at runtime.
+
+   It used to be four explicit tags next to four boxes while fifteen
+   others had none — Diagnosis among them, which is the field most likely
+   to attract an MRN in the first place. Naming the boxes in a test would
+   have caught that once; walking whatever the panel actually renders
+   catches the box somebody adds next year.
+
+   The two exclusions are asserted rather than assumed: a number box
+   cannot carry an identifier, and the date box must NOT scan, because a
+   full date is itself one of the patterns. */
+describe("no free-text box escapes the identifier warning", () => {
+  const TRIGGER = "MRN";
+  const warnings = (root) => within(root).queryAllByText(/looks like it contains/i).length;
+
+  const freeTextBoxes = (root) =>
+    [...root.querySelectorAll("input, textarea")].filter((el) => {
+      if (el.tagName === "TEXTAREA") return true;
+      if (el.type === "number") return false;        // year seen; cannot be an identifier
+      if (el.inputMode === "numeric") return false;  // the date box; a date IS a pattern
+      return el.type === "text" || el.type === "" || !el.getAttribute("type");
+    });
+
+  const describeBox = (el) =>
+    el.getAttribute("aria-label") || el.placeholder || `<${el.tagName.toLowerCase()}>`;
+
+  const everyBoxWarns = async (user, root) => {
+    const boxes = freeTextBoxes(root);
+    expect(boxes.length).toBeGreaterThan(0);
+    for (const box of boxes) {
+      await user.clear(box);
+      expect(warnings(root), `stale warning before testing ${describeBox(box)}`).toBe(0);
+      await user.type(box, TRIGGER);
+      expect(warnings(root), `no identifier warning for ${describeBox(box)}`).toBeGreaterThan(0);
+      await user.clear(box);
+    }
+    return boxes.length;
+  };
+
+  it.each(["case_report", "qa_qi", "research", "review"])(
+    "warns from every box on a %s overview",
+    async (project_type) => {
+      const { user } = setup({ project_type, details: { description: "d", diagnosis: "x", why_unique: "y" } });
+      await everyBoxWarns(user, screen.getByRole("dialog"));
+    }
+  );
+
+  it("warns from every box on the venues tab, including the free-text kind", async () => {
+    const { user } = setup();
+    const panel = screen.getByRole("dialog");
+    await user.click(within(panel).getByRole("button", { name: /^venues/i }));
+    await user.click(within(panel).getByRole("button", { name: /Add a venue/ }));
+    // "Other" reveals the free-text description, which is its own box.
+    const kind = within(panel).getAllByRole("combobox")
+      .find((s) => [...s.options].some((o) => o.value === "internal_presentation"));
+    await user.selectOptions(kind, "other");
+
+    const count = await everyBoxWarns(user, panel);
+    expect(count).toBeGreaterThanOrEqual(3);   // venue name, free-text kind, venue notes
+  });
+
+  it("warns from the notes box", async () => {
+    const { user } = setup();
+    const panel = screen.getByRole("dialog");
+    await user.click(within(panel).getByRole("button", { name: /^notes/i }));
+    await everyBoxWarns(user, panel);
+  });
+
+  it("does not warn on the date box, because a date is one of the patterns", async () => {
+    const { user } = setup();
+    const panel = screen.getByRole("dialog");
+    const due = within(panel).getByLabelText("Due date");
+    await user.type(due, "08042026");
+    expect(due).toHaveValue("08/04/2026");
+    expect(warnings(panel)).toBe(0);
+  });
+
+  it("does not warn on year seen, which is a number box", async () => {
+    const { user } = setup({ project_type: "case_report" });
+    const panel = screen.getByRole("dialog");
+    const year = within(panel).getByLabelText(/Year seen/);
+    await user.clear(year);
+    await user.type(year, "2024");
+    expect(warnings(panel)).toBe(0);
+  });
+});
+
 describe("where the project-level fields sit", () => {
   /* No Purpose field, on any type, deliberately — docs/DECISIONS.md.
 

@@ -26,9 +26,17 @@ and nothing else; the link between that number and a patient lives in the EMR or
 where it belongs.
 
 If you type something that looks like an identifier — a long number, a full date, the
-letters "MRN" — the form quietly points it out and asks you to check. It never blocks
-you, because it cannot tell a lab value from a record number, and a system that cries
-wolf gets ignored.
+letters "MRN", a social security pattern — the form quietly points it out and asks you to
+check. It never blocks you, because it cannot tell a lab value from a record number, and a
+system that cries wolf gets ignored.
+
+**Every free-text box does this**, not just the obvious ones: the title, the diagnosis,
+why-it-is-unique, the aim and measure, the study design notes, every venue field, the
+notepad, and the roster's name and position boxes. There is no field you can put an
+identifier in that is not watching for it — the check lives in the input control itself, so
+a box added in a year's time gets it automatically. The date fields are the deliberate
+exception, since a date is one of the patterns and they would otherwise warn every time
+they were filled in correctly.
 
 ---
 

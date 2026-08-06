@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { Plus, X } from "lucide-react";
 import { brand, TYPES } from "../lib/domain.js";
 import { validateProject } from "../lib/projects.js";
-import { Button, ChoiceButtons, Field, Modal, TextInput, IdentifierNotice } from "./primitives.jsx";
+import { Button, ChoiceButtons, Field, Modal, TextInput } from "./primitives.jsx";
 import AuthorPicker from "./AuthorPicker.jsx";
 
 /* ---------------------------------------------------------------------
@@ -87,7 +87,6 @@ export default function QuickCapture({ people, onCreate, onAddPerson, now = Date
           onKeyDown={(e) => { if (e.key === "Enter" && e.metaKey) save(); }}
           placeholder="e.g. Disseminated gonococcal rash"
         />
-        <IdentifierNotice text={title} />
       </Field>
 
       <Field group label="Type" hint="Pick the closest one. It can be changed later without recreating the project.">

@@ -10,7 +10,7 @@ import {
 } from "../lib/projects.js";
 import {
   Badge, Button, ChoiceButtons, DateInput, Field, Modal, Select, TextArea, TextInput,
-  IdentifierNotice, UnsavedChangesDialog,
+  UnsavedChangesDialog,
 } from "./primitives.jsx";
 import AuthorPicker from "./AuthorPicker.jsx";
 
@@ -246,7 +246,6 @@ export default function DetailPanel({
             <>
               <Field label="Title">
                 <TextInput value={draft.title} onChange={(e) => set({ title: e.target.value })} />
-                <IdentifierNotice text={draft.title} />
               </Field>
 
               <Field group label="Type" hint="Set the wrong one on capture? Change it here — nothing is lost, and a case number once issued is kept.">
@@ -290,7 +289,6 @@ export default function DetailPanel({
                   <Field label="Why it is unique">
                     <TextArea rows={2} value={draft.details.why_unique || ""}
                               onChange={(e) => setDetail({ why_unique: e.target.value })} />
-                    <IdentifierNotice text={draft.details.why_unique} />
                   </Field>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
                     <Field group label="Attending">
@@ -474,7 +472,6 @@ export default function DetailPanel({
               <Field label="Notes" hint="Markdown. This is the notepad — put anything here except patient identifiers.">
                 <TextArea rows={16} value={draft.notes} onChange={(e) => set({ notes: e.target.value })} />
               </Field>
-              <IdentifierNotice text={draft.notes} />
             </>
           )}
         </div>
