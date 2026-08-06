@@ -361,10 +361,52 @@ describe("saving a staff edit with the keyboard", () => {
     expect(onSavePerson.mock.calls[0][1].display_name).toBe("Tomi Albrecht");
   });
 
-  /* Enter used to work in the name box and nowhere else, because the
-     handler was attached to that one input. Typing an end date and
-     pressing Enter did nothing at all — the same key doing two different
-     things in one row of boxes, and no way to tell which you were in. */
+  /* Every field, enumerated at runtime rather than named one by one.
+
+     Enter used to work in the name box and nowhere else, because the
+     handler was attached to that one input — the same key doing two
+     different things in one row of boxes. Naming the fields in a test
+     would have caught that once; walking whatever the form actually
+     contains catches it again when somebody adds a fifth box and wires
+     the handler to four of them. Ben Iwu is the fixture because an
+     external collaborator's row renders the free-text position too, so
+     the form is at its widest. */
+  it("saves on Enter from every field the edit form contains", async () => {
+    const { onSavePerson, user } = setup();
+
+    const openBen = async () => {
+      const row = rows().find((r) => r.textContent.includes("Ben Iwu"));
+      await user.click(within(row).getByRole("button", { name: "Edit Ben Iwu" }));
+      return document.querySelector('[role="listitem"] form');
+    };
+
+    const describe_ = (el) =>
+      el.getAttribute("aria-label") || el.placeholder || `<${el.tagName.toLowerCase()}>`;
+
+    const fieldCount = [...(await openBen()).querySelectorAll("input, select")].length;
+    // Name, Role, Position, End date. If this drops, the form shrank and
+    // the loop below stopped proving anything.
+    expect(fieldCount).toBeGreaterThanOrEqual(4);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    for (let i = 0; i < fieldCount; i++) {
+      const form = await openBen();
+      const field = [...form.querySelectorAll("input, select")][i];
+      const before = onSavePerson.mock.calls.length;
+
+      await user.click(field);
+      await user.keyboard("{Enter}");
+
+      expect(
+        onSavePerson.mock.calls.length,
+        `Enter did nothing in ${describe_(field)}`
+      ).toBe(before + 1);
+    }
+  });
+
+  /* The specific fields that were broken, kept as named scenarios so a
+     failure says which one rather than just "index 2". The loop above
+     proves the rule; these say where it hurt. */
   it("saves on Enter in the end date field", async () => {
     const { onSavePerson, user } = setup();
     const row = rows().find((r) => r.textContent.includes("Tomi Okafor"));

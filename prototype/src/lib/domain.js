@@ -206,6 +206,26 @@ export function sortRoster(people, mode = "name", projects = []) {
   return decorated.map((d) => d.p);
 }
 
+/* A new roster entry.
+
+   Lives here rather than inside the component because the component is
+   where both field-name bugs happened: it was the one file with no unit
+   tests, and `role`/`position` sat there for a day looking plausible
+   while every reader in the app wanted `staff_position`/
+   `external_position`. A record builder is logic, and logic belongs
+   somewhere a scenario can reach it. */
+export function newPerson(displayName, staffPosition, externalPosition = "", now = Date.now()) {
+  return {
+    id: `p${now}`,
+    display_name: displayName,
+    staff_position: staffPosition,
+    employment_end_date: null,
+    // Only external collaborators carry one, and the schema has a CHECK
+    // saying so, so an empty string must not become a stored value.
+    ...(externalPosition ? { external_position: externalPosition } : {}),
+  };
+}
+
 /* Every edit to a person, including a rename.
 
    Names change. The link is the id, never the name, so a rename is just

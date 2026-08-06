@@ -7,11 +7,11 @@ import {
 import {
   brand, WORK_STATUSES, SUBMISSION_STATUSES, TYPES,
   ayLabel, academicYearOf, activePeople, sortedByName,
-  updatePerson, nextCaseId,
+  updatePerson, newPerson,
 } from "./lib/domain.js";
 import {
   EMPTY_FILTERS, PAGE_SIZE, ARCHIVED_VIEWS, filterProjects, sortProjects, nextSort,
-  paginate, stalenessLabel, nextArchivedView,
+  paginate, stalenessLabel, nextArchivedView, newProject,
 } from "./lib/projects.js";
 import { downloadCsv } from "./lib/exportCsv.js";
 import { Badge, inputStyle } from "./components/primitives.jsx";
@@ -70,7 +70,7 @@ const daysAgo = (n) => new Date(Date.now() - n * 864e5).toISOString();
    from the program's own list, or leave it out.
    ------------------------------------------------------------------------ */
 
-const seedPeople = [
+export const seedPeople = [
   { id: "p1",  display_name: "Mark Albrecht",       staff_position: "resident" },
   { id: "p2",  display_name: "Georgia Hughey",      staff_position: "resident" },
   { id: "p3",  display_name: "Sarah Bridgeman",     staff_position: "resident" },
@@ -96,10 +96,16 @@ const seedPeople = [
   { id: "p23", display_name: "Morgan Claire Belle", staff_position: "medical_student" },
 ].map((p) => ({ employment_end_date: null, ...p }));
 
+/* Exported so the tests can hold what the app CREATES against what it
+   ships with. A writer that invents a field name, or forgets one,
+   produces a record the rest of the app only half understands — `type`
+   instead of `project_type` gave a blank badge and an uncountable tile
+   while every assertion stayed green. Comparing shapes catches that
+   whatever the new field happens to be called. */
+
 /* Defaults for the fields every project has, so the list below shows only
    what makes each one different. */
 const project = (o) => ({
-  purpose: "",
   notes: "",
   next_action: "",
   next_action_due_date: "",
@@ -119,14 +125,13 @@ const venue = (id, venue_type, venue_name, submission_status) => ({
 /* Deliberately uneven. Some people carry three, several carry none, and a
    few have only archived work — that spread is the whole point of the
    roster, and a tidy one-each distribution would hide it. */
-const seedProjects = [
+export const seedProjects = [
   project({
     id: "x1",
     title: "Disseminated gonococcal rash",
     project_type: "case_report",
     work_status: "in_edit",
     authors: ["p1", "p12"],
-    purpose: "Atypical sequence of findings; useful teaching case for the residency.",
     notes: "Pustular rash preceded the joint symptoms by nine days, which is backwards from the usual teaching.",
     next_action: "Return revisions to JAAD Case Reports",
     next_action_due_date: new Date(Date.now() + 9 * 864e5).toISOString().slice(0, 10),
@@ -151,7 +156,6 @@ const seedProjects = [
     project_type: "qa_qi",
     work_status: "collecting_data",
     authors: ["p2", "p22"],
-    purpose: "No-shows are eating roughly a fifth of resident clinic slots.",
     notes: "Baseline pulled from the scheduling report. Two-touch reminder pilot starts next block.",
     next_action: "Pull month two of reminder data",
     next_action_due_date: new Date(Date.now() + 21 * 864e5).toISOString().slice(0, 10),
@@ -171,7 +175,6 @@ const seedProjects = [
     project_type: "research",
     work_status: "analyzing",
     authors: ["p3", "p13"],
-    purpose: "Establish whether store-and-forward triage is safe for our referral volume.",
     notes: "Retrospective chart review, 18 months of referrals.",
     next_action: "Finish interrater agreement analysis",
     irb_status: "approved",
@@ -222,7 +225,6 @@ const seedProjects = [
     project_type: "research",
     work_status: "on_hold",
     authors: ["p3", "p14"],
-    purpose: "Started before the fellowship changed hands and never picked back up.",
     irb_status: "approved",
     academic_year: CURRENT_AY - 1,
     created_at: daysAgo(600),
@@ -235,7 +237,6 @@ const seedProjects = [
     project_type: "qa_qi",
     work_status: "rough_draft",
     authors: ["p5", "p16"],
-    purpose: "Prior authorisation is the rate-limiting step for most of these patients.",
     next_action: "Draft the results section",
     irb_status: "exempt_determination",
     created_at: daysAgo(210),
@@ -270,7 +271,6 @@ const seedProjects = [
     project_type: "qa_qi",
     work_status: "idea",
     authors: ["p7"],
-    purpose: "Most benign referrals could be filtered upstream.",
     created_at: daysAgo(30),
     updated_at: daysAgo(30),
     details: { description: "Short-course dermoscopy training for referring clinics." },
@@ -299,7 +299,6 @@ const seedProjects = [
     project_type: "research",
     work_status: "collecting_data",
     authors: ["p10", "p15", "p22"],
-    purpose: "Monthly labs may be more than the evidence supports.",
     irb_status: "submitted",
     created_at: daysAgo(160),
     updated_at: daysAgo(5),
@@ -409,62 +408,16 @@ export default function ProjectTracker() {
 
   const setFilter = (patch) => setFilters((f) => ({ ...f, ...patch }));
 
-  /* The field names here are the schema's, not shorthand. Writing `role`
-     and `position` left the new person with no `staff_position` at all:
-     they vanished from the position filter and the attending picker, and
-     their roster row showed no role. Every reader uses these two names. */
   const addPerson = (name, staffPosition, externalPosition = "") => {
-    const person = {
-      id: `p${Date.now()}`,
-      display_name: name,
-      staff_position: staffPosition,
-      employment_end_date: null,
-      ...(externalPosition ? { external_position: externalPosition } : {}),
-    };
+    const person = newPerson(name, staffPosition, externalPosition, Date.now());
     setPeople((prev) => [...prev, person]);
     return person;
   };
 
   const savePerson = (id, patch) => setPeople((prev) => updatePerson(prev, id, patch));
 
-  /* `project_type` is the field every reader uses — the table badge, the
-     count tiles, the type filter, the CSV, sorting. Writing `type` here
-     produced a project the rest of the app could not see the type of. */
-  const createProject = ({ title, project_type, authors }) => {
-    const p = {
-      id: `x${Date.now()}`,
-      title, project_type, authors,
-      work_status: "idea",
-      purpose: "", notes: "", next_action: "", next_action_due_date: "",
-      /* Every new project starts "Not applicable", whatever its type.
-         Guessing "Not yet submitted" for the three non-case-report types
-         asserted that an IRB submission is expected, which is wrong for
-         most QA/QI work and for every literature review — and it did not
-         match `projects.irb_status`, whose column default is
-         'not_applicable'. A status nobody chose should be the one that
-         claims the least. */
-      irb_status: "not_applicable",
-      academic_year: CURRENT_AY,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      archived_at: null,
-      details:
-        project_type === "case_report"
-          ? {
-              case_number: nextCaseId(projects, CURRENT_AY),
-              diagnosis: "", why_unique: "", attending_id: "",
-              // Defaulted here, on creation, and nowhere else. Most case
-              // reports are written up in the year they were seen, so
-              // this is right far more often than it is wrong — and it
-              // stays editable. Applying the same default on edit would
-              // silently rewrite the year of every old case report
-              // somebody opened.
-              year_seen: new Date().getFullYear(),
-              patient_consent_obtained: "not_yet",
-            }
-          : { description: "" },
-      venues: [],
-    };
+  const createProject = (draft) => {
+    const p = newProject(draft, projects, Date.now());
     setProjects((prev) => [p, ...prev]);
     setOpenId(p.id);
   };
@@ -614,7 +567,7 @@ export default function ProjectTracker() {
             <input
               value={filters.q}
               onChange={(e) => setFilter({ q: e.target.value })}
-              placeholder="Search titles, purpose, notes, diagnoses and case IDs"
+              placeholder="Search titles, notes, diagnoses and case IDs"
               className="w-full rounded-md pl-9 pr-3 py-2 text-sm outline-none focus:ring-2"
               style={inputStyle}
               aria-label="Search projects"

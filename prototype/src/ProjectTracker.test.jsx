@@ -2,7 +2,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import ProjectTracker from "./ProjectTracker.jsx";
+import ProjectTracker, { seedProjects, seedPeople } from "./ProjectTracker.jsx";
+import { newProject } from "./lib/projects.js";
+import { newPerson } from "./lib/domain.js";
 
 /* ---------------------------------------------------------------------
    Whole-app tests, against the built-in sample data.
@@ -214,6 +216,55 @@ describe("the filter dropdowns are ordered", () => {
     expect(statuses[0]).toBe("Idea");
     expect(statuses[statuses.length - 1]).toBe("Abandoned");
     expect(statuses.indexOf("Complete")).toBeLessThan(statuses.indexOf("On hold"));
+  });
+});
+
+/* Shape parity: what the app CREATES must look like what it ships with.
+
+   Both field-name bugs in this codebase were the same mistake — a writer
+   using a name no reader uses — and both survived a full green suite
+   because every assertion checked behaviour that happened to still work,
+   and none checked the record itself.
+
+   This compares key sets rather than named fields on purpose. A test that
+   says "project_type is present" only catches the bug you already know
+   about; comparing against the reference record catches the next one,
+   whatever it gets called, including a field quietly dropped. */
+describe("a created record has the same shape as a seeded one", () => {
+  const keysOf = (o) => Object.keys(o).sort();
+
+  it("a new project matches a seeded project, field for field", () => {
+    const made = newProject(
+      { title: "T", project_type: "research", authors: ["p1"] },
+      seedProjects,
+      Date.parse("2026-08-05T12:00:00Z")
+    );
+    expect(keysOf(made)).toEqual(keysOf(seedProjects[0]));
+  });
+
+  it("a new case report matches too, including its detail bag", () => {
+    const made = newProject(
+      { title: "T", project_type: "case_report", authors: ["p1"] },
+      seedProjects,
+      Date.parse("2026-08-05T12:00:00Z")
+    );
+    const seededCaseReport = seedProjects.find((p) => p.project_type === "case_report");
+    expect(keysOf(made)).toEqual(keysOf(seededCaseReport));
+    expect(keysOf(made.details)).toEqual(keysOf(seededCaseReport.details));
+  });
+
+  it("a new person matches a seeded person", () => {
+    const made = newPerson("Someone New", "resident", "", 1754395200000);
+    expect(keysOf(made)).toEqual(keysOf(seedPeople[0]));
+  });
+
+  it("carries external_position only when there is one to carry", () => {
+    // The schema has a CHECK confining it to external collaborators, so an
+    // empty string must not become a stored value.
+    const without = newPerson("A", "resident", "", 1);
+    const with_ = newPerson("B", "external_collaborator", "Pathologist", 2);
+    expect(without).not.toHaveProperty("external_position");
+    expect(with_.external_position).toBe("Pathologist");
   });
 });
 
